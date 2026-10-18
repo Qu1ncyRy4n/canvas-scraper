@@ -84,7 +84,7 @@ def vtt_to_text(vtt):
     return " ".join(out)
 
 
-def transcripts(ids, out, verbose=False):
+def transcripts(ids, out, verbose=False, log=print):
     """Fetch English captions for each video id -> {id: md path}. Saved as transcripts/<id>.md (title inside) so
     the extension can link them before they exist. Videos without captions are retried next run."""
     out.mkdir(parents=True, exist_ok=True)
@@ -97,13 +97,13 @@ def transcripts(ids, out, verbose=False):
             "quiet": not verbose, "no_warnings": not verbose}
     with yt_dlp.YoutubeDL(opts) as ydl:
         for vid in sorted(ids - have.keys()):
-            print("  transcript", vid)
+            log(f"  transcript {vid}")
             info = ydl.extract_info(f"https://youtu.be/{vid}")
             vtts = sorted(out.glob(f"{vid}.*.vtt"))
             if not info:
-                print("    failed: video unavailable or YouTube refused (details: canvas-process --verbose)")
+                log("    failed: video unavailable or YouTube refused (details: canvas-process --verbose)")
             elif not vtts:
-                print("    no English captions on this video")
+                log("    no English captions on this video")
             else:
                 have[vid] = out / f"{vid}.md"
                 write(have[vid], f"# {info['title']}\n\nVideo: <https://youtu.be/{vid}>\n\n{vtt_to_text(vtts[0].read_text())}\n")
@@ -316,31 +316,16 @@ CONVERT = {".pdf", ".pptx"}
 PLAIN = {".txt", ".md", ".csv", ".tsv", ".json", ".tex", ".html", ".htm", ".css", ".js", ".py", ".r", ".java", ".c", ".cpp", ".h"}
 
 
-def process_main():
-    """canvas-process DIR: fill DIR/Plaintext from DIR/Source (the extension's save folder).
-
-    Source/<Course>/x.pdf|pptx -> Plaintext/<Course>/files/x.pdf.md   (converted)
-    Source/<Course>/x.txt|csv|.. -> Plaintext/<Course>/files/x.txt     (copied; tiny, and copies survive
-                                                                         Drive sync + drag-and-drop, symlinks don't)
-    Plaintext/<Course>/videos.md -> Plaintext/<Course>/transcripts/
-    """
-    ap = argparse.ArgumentParser(description=process_main.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("dir", type=Path, nargs="?", default=Path.home() / "Downloads" / "Canvas",
-                    help="the extension's save folder (default: ~/Downloads/Canvas)")
-    ap.add_argument("--check", action="store_true", help="test conversions, YouTube and the folder; print what's broken")
-    ap.add_argument("-v", "--verbose", action="store_true", help="show yt-dlp's own warnings and errors")
-    a = ap.parse_args()
-    root = a.dir.expanduser()
-    if a.check:
-        sys.exit(check(root))
+def process(root, verbose=False, log=print):
+    """Fill root/Plaintext from root/Source and fetch transcripts; see process_main. Returns a summary dict."""
     if not (root / "Source").is_dir():
-        sys.exit(f"error: no Source/ folder in {root}; point this at the extension's save folder (e.g. ~/Downloads/Canvas)")
-    problems = verify_manifest(root)
-    if problems:
-        print(f"manifest: {len(problems)} problem(s). Missing files come back on the next extension Update;"
-              " edited files are kept (delete one to get Canvas's version back):")
-        for p in problems[:20]:
-            print("  ", p)
+        raise FileNotFoundError(f"no Source/ folder in {root}; point this at the extension's save folder (e.g. ~/Downloads/Canvas)")
+    done = {"converted": 0, "copied": 0, "failed": [], "transcripts": 0, "problems": verify_manifest(root)}
+    if done["problems"]:
+        log(f"manifest: {len(done['problems'])} problem(s). Missing files come back on the next extension Update;"
+            " edited files are kept (delete one to get Canvas's version back):")
+        for p in done["problems"][:20]:
+            log(f"   {p}")
     for src in sorted((root / "Source").rglob("*")):
         ext, parts = src.suffix.lower(), src.relative_to(root / "Source").parts
         if not src.is_file() or ext not in CONVERT | PLAIN or len(parts) < 2:
@@ -350,18 +335,53 @@ def process_main():
             dest = dest.with_name(dest.name + ".md")
         if dest.exists() and dest.stat().st_mtime >= src.stat().st_mtime:
             continue
-        print("  text", src.relative_to(root))
+        log(f"  text {src.relative_to(root)}")
         try:
             if ext in CONVERT:
                 to_text(src, dest)
+                done["converted"] += 1
             else:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dest)
+                done["copied"] += 1
         except Exception as e:  # one broken file shouldn't stop the rest
-            print("    failed:", e)
+            log(f"    failed: {e}")
+            done["failed"].append(src.name)
     for videos in (root / "Plaintext").rglob("videos.md"):
-        print(videos.parent.name)
-        transcripts(set(YT.findall(videos.read_text())), videos.parent / "transcripts", a.verbose)
+        log(videos.parent.name)
+        out = videos.parent / "transcripts"
+        before = len(list(out.glob("?" * 11 + ".md")))  # <11-char video id>.md, not README.md
+        done["transcripts"] += len(transcripts(set(YT.findall(videos.read_text())), out, verbose, log)) - before
+    return done
+
+
+def process_main():
+    """canvas-process DIR: fill DIR/Plaintext from DIR/Source (the extension's save folder).
+
+    Source/<Course>/x.pdf|pptx -> Plaintext/<Course>/files/x.pdf.md   (converted)
+    Source/<Course>/x.txt|csv|.. -> Plaintext/<Course>/files/x.txt     (copied; tiny, and copies survive
+                                                                         Drive sync + drag-and-drop, symlinks don't)
+    Plaintext/<Course>/videos.md -> Plaintext/<Course>/transcripts/
+    """
+    from canvas_scrape import host
+
+    ap = argparse.ArgumentParser(description=process_main.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("dir", type=Path, nargs="?", default=Path.home() / "Downloads" / "Canvas",
+                    help="the extension's save folder (default: ~/Downloads/Canvas)")
+    ap.add_argument("--check", action="store_true", help="test conversions, YouTube and the folder; print what's broken")
+    ap.add_argument("--install-browser-link", action="store_true",
+                    help="let the browser extension run this automatically after each download")
+    ap.add_argument("-v", "--verbose", action="store_true", help="show yt-dlp's own warnings and errors")
+    a = ap.parse_args()
+    root = a.dir.expanduser()
+    if a.install_browser_link:
+        sys.exit(host.install())
+    if a.check:
+        sys.exit(check(root))
+    try:
+        process(root, a.verbose)
+    except FileNotFoundError as e:
+        sys.exit(f"error: {e}")
 
 
 TEST_VIDEO = "dQw4w9WgXcQ"  # long-lived, has manual English captions
@@ -442,13 +462,21 @@ def check(root):
             (note if done != ids else lambda t: print(f"  ✓ {t}"))(
                 f"{videos.parent.name}: {len(done)}/{len(ids)} transcripts" + (", run canvas-process" if done != ids else ""))
 
+    print("Browser link (runs this automatically after each download)")
+    from canvas_scrape import host
+    links = host.installed()
+    if links:
+        print("  ✓ installed for: " + ", ".join(str(f.parents[1].name) for f in links))
+    else:
+        note("not installed; optional: canvas-process --install-browser-link")
+
     print("Schedule")
     try:
         cron = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
         if "canvas-process" in cron:
             print("  ✓ hourly cron job installed (if nothing ever updates, give /usr/sbin/cron Full Disk Access)")
         else:
-            note("not scheduled; optional, see README 'Run it every hour'")
+            note("not scheduled; optional if the browser link is installed, see README")
     except FileNotFoundError:
         note("no crontab on this system; use Task Scheduler (see README)")
 

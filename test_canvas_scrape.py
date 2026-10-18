@@ -27,3 +27,28 @@ def test_to_md_links():
     assert "[intro](Intro.md)" in md
     assert "[ext](https://example.com)" in md
     assert "([transcript](../transcripts/Myths%20%5Bo-0iIXQ_XHA%5D.md))" in md
+
+
+def test_host_protocol(tmp_path):
+    import json, struct, subprocess, sys
+
+    (tmp_path / "Source" / "ANTH 101").mkdir(parents=True)
+    (tmp_path / "Source" / "ANTH 101" / "notes.txt").write_text("hello")
+
+    def msg(m):
+        data = json.dumps(m).encode()
+        return struct.pack("<I", len(data)) + data
+
+    stdin = msg({"cmd": "ping"}) + msg({"cmd": "process", "dir": "/nonexistent"}) + msg({"cmd": "process", "dir": str(tmp_path)})
+    out = subprocess.run([sys.executable, "-c", "from canvas_scrape.host import host_main; host_main()"],
+                         input=stdin, capture_output=True, timeout=60).stdout
+    replies = []
+    while out:
+        n = struct.unpack("<I", out[:4])[0]
+        replies.append(json.loads(out[4:4 + n]))
+        out = out[4 + n:]
+    assert replies[0]["ok"] and replies[0]["version"]
+    assert "no Source/ folder" in replies[1]["error"]
+    assert any("notes.txt" in r.get("progress", "") for r in replies[2:])
+    assert replies[-1]["done"]["copied"] == 1
+    assert (tmp_path / "Plaintext" / "ANTH 101" / "files" / "notes.txt").read_text() == "hello"
