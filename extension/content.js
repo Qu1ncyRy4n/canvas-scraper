@@ -2,7 +2,6 @@
 // Mirrors courses into Downloads/Canvas/<Course>/ as linked Markdown, same layout as the Python canvas-scrape.
 // Exposes window.__canvasSaver = { courses, run } for the popup; shows a daily "Update?" prompt.
 if (!window.__canvasSaver) (() => {
-  const ROOT = "Canvas";
   const YT = /(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:\S*?&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/g;
   const CANVAS = /^(?:https?:\/\/[^/]+)?\/courses\/\d+\/(files|pages|assignments)\/([\w-]+)/;
   const MD_LINK = /(!?)\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g;
@@ -71,7 +70,7 @@ if (!window.__canvasSaver) (() => {
   });
 
   // Scan one course -> {jobs: [{path, url | text, key}], due, skipped: [{name, why}]}. Nothing is downloaded here.
-  async function scanCourse(c, maxBytes) {
+  async function scanCourse(c, maxBytes, root) {
     const base = `courses/${c.id}`, jobs = [], bundle = [], skipped = [];
     const files = new Map(), pages = new Map(), assignments = new Map(), blobs = [];
     const putText = async (path, text, inBundle = true) => {
@@ -185,7 +184,7 @@ if (!window.__canvasSaver) (() => {
     await putText("course.md", all, false);
     index.push("\n## Other\n\n- [Everything in one file](course.md)\n- [What's new](CHANGES.md)\n- [Not downloaded](SKIPPED.md)");
     await putText(home, index.join("\n") + "\n", false);
-    for (const j of jobs) j.path = `${ROOT}/${safe(c.name)}/${j.path}`;
+    for (const j of jobs) j.path = `${root}/${safe(c.name)}/${j.path}`;
 
     const now = Date.now(), week = now + 7 * 864e5;
     const due = byDue.filter(a => a.due_at && Date.parse(a.due_at) > now && Date.parse(a.due_at) < week)
@@ -215,7 +214,8 @@ if (!window.__canvasSaver) (() => {
   async function run(ids) {
     if (running) return;
     running = true;
-    const { maxMB = 200 } = await getCfg();
+    const { maxMB = 200, folder = "Canvas" } = await getCfg();
+    const root = folder.split(/[\\/]+/).filter(p => p.replace(/\./g, "").trim()).map(safe).join("/") || "Canvas";
     let stop = false, saved = 0, failed = 0;
     const fresh = [], due = [], skipped = [];
     const box = panel(), title = el("div", { style: "font-weight:600" }), detail = el("div", { style: "opacity:.8;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" });
@@ -234,12 +234,12 @@ if (!window.__canvasSaver) (() => {
         title.textContent = (ids.length > 1 ? `Course ${i + 1} of ${ids.length}: ` : "") + c.name;
         detail.textContent = "Scanning…";
         bar.removeAttribute("value"); // indeterminate while scanning
-        const scan = await scanCourse(c, maxMB * 1e6);
+        const scan = await scanCourse(c, maxMB * 1e6, root);
         due.push(...scan.due);
         const skipFrom = skipped.length;
         skipped.push(...scan.skipped);
         bar.max = scan.jobs.length;
-        const dir = `${ROOT}/${safe(c.name)}/`, changed = [];
+        const dir = `${root}/${safe(c.name)}/`, changed = [];
         for (const [n, job] of scan.jobs.entries()) {
           if (stop) break;
           bar.value = n;
@@ -269,7 +269,7 @@ if (!window.__canvasSaver) (() => {
         ...list("What's new", fresh.length > 8 ? [...fresh.slice(0, 8), `…and ${fresh.length - 8} more (see CHANGES.md)`] : fresh),
         ...list("Due in the next 7 days", due.map(a => `${a.done ? "✓ " : ""}${fmtDay(a.due)} · ${a.name} · ${a.course}`)),
         ...list(`Not downloaded (${skipped.length}), see SKIPPED.md`, skipped.slice(0, 6).map(x => `${x.name}: ${x.why}`)),
-        el("div", { style: "opacity:.8;font-size:12px;margin-top:8px", textContent: `Saved to Downloads/${ROOT}` }),
+        el("div", { style: "opacity:.8;font-size:12px;margin-top:8px", textContent: `Saved to Downloads/${root}` }),
         btn("Open folder", () => chrome.runtime.sendMessage({ openFolder: true }), true),
         btn("Close", () => box.remove()));
     } catch (e) {

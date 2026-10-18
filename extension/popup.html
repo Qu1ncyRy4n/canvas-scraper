@@ -20,6 +20,9 @@
 <div id="list"></div>
 <label id="sizerow" hidden style="align-items:center;font-size:13px">Skip files over
   <input type="number" id="maxmb" min="0" step="50" style="width:64px"> MB <small>(0 = no limit)</small></label>
+<label id="folderrow" hidden style="align-items:center;font-size:13px">Save to Downloads/
+  <input type="text" id="dest" style="width:120px"></label>
+<small id="desthint" hidden>To save outside Downloads, change the browser's download location in its settings.</small>
 <button id="go" hidden>Download selected</button>
 <button id="folder">Open downloads folder</button>
 <script src="popup.js"></script>

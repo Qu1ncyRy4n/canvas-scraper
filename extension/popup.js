@@ -39,12 +39,14 @@ $("folder").onclick = () => chrome.downloads.showDefaultFolder();
   boxes.forEach(b => (b.onchange = sync));
   $("all").onchange = () => { boxes.forEach(b => (b.checked = $("all").checked)); sync(); };
   $("maxmb").value = cfg.maxMB ?? 200;
-  $("allrow").hidden = $("sizerow").hidden = $("go").hidden = false;
+  $("dest").value = cfg.folder ?? "Canvas";
+  $("allrow").hidden = $("sizerow").hidden = $("folderrow").hidden = $("desthint").hidden = $("go").hidden = false;
   sync();
 
   $("go").onclick = async () => {
     const ids = boxes.filter(b => b.checked).map(b => Number(b.value));
-    await chrome.storage.local.set({ [key]: { ...cfg, ids, maxMB: Math.max(0, Number($("maxmb").value) || 0) } });
+    await chrome.storage.local.set({ [key]: { ...cfg, ids, maxMB: Math.max(0, Number($("maxmb").value) || 0),
+      folder: $("dest").value.trim() || "Canvas" } });
     exec(ids => window.__canvasSaver.run(ids), ids); // runs in the page; popup can close
     window.close();
   };
