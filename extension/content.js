@@ -235,11 +235,32 @@ if (!window.__canvasSaver) (() => {
     await chrome.runtime.sendMessage({ path: me, text, key: await hash(text) });
   }
 
+  // Ask canvas-host (installed with `canvas-process --install-browser-link`) for text versions + transcripts.
+  function makeText(box, root) {
+    const line = el("div", { style: "font-size:12px;margin-top:8px", textContent: "Text versions: starting…" });
+    box.insertBefore(line, box.querySelector("button"));
+    const port = chrome.runtime.connect({ name: "process" });
+    port.onMessage.addListener(m => {
+      if (m.progress) line.textContent = "Text versions: " + m.progress.replace(/^(text|transcript) /, "").split("/").pop();
+      else if (m.done) {
+        const d = m.done, parts = [d.converted && `${d.converted} converted`, d.copied && `${d.copied} copied`,
+          d.transcripts && `${d.transcripts} new transcript(s)`, d.failed.length && `${d.failed.length} failed`].filter(Boolean);
+        line.textContent = `Text versions ✓ ${parts.join(", ") || "nothing new"}`;
+        port.disconnect();
+      } else if (m.error) {
+        line.textContent = /not found|No such native application|not installed/i.test(m.error)
+          ? "Text versions: not set up (optional, see ? in the extension)" : `Text versions failed: ${m.error}`;
+        port.disconnect();
+      }
+    });
+    port.postMessage({ root });
+  }
+
   let running = false;
   async function run(ids) {
     if (running) return;
     running = true;
-    const { maxMB = 200, folder = "Canvas" } = await getCfg();
+    const { maxMB = 200, folder = "Canvas", autoText = true } = await getCfg();
     const root = folder.split(/[\\/]+/).filter(p => p.replace(/\./g, "").trim()).map(safe).join("/") || "Canvas";
     let stop = false, saved = 0, failed = 0;
     const fresh = [], due = [], skipped = [];
@@ -303,6 +324,7 @@ if (!window.__canvasSaver) (() => {
         el("div", { style: "opacity:.8;font-size:12px;margin-top:8px", textContent: `Saved to Downloads/${root}` }),
         btn("Open folder", () => chrome.runtime.sendMessage({ openFolder: true }), true),
         btn("Close", () => box.remove()));
+      if (autoText && !stop) makeText(box, root);
     } catch (e) {
       box.replaceChildren(el("div", { textContent: `Error: ${e.message}\n(Are you logged in to Canvas?)`, style: "white-space:pre-wrap" }),
         btn("Close", () => box.remove()));

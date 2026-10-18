@@ -42,6 +42,11 @@
     <li>Once a day Canvas will ask <b>Update your Canvas downloads?</b></li>
     <li>Deleted a file by accident? The next update brings it back. Files you edit are left alone.</li>
   </ul>
+  <h2>Text versions and transcripts</h2>
+  <ul>
+    <li>With the checkbox on, PDFs and slides get text versions and YouTube videos get transcripts right after each download. The corner panel shows the progress.</li>
+    <li>This needs the <code>canvas-process</code> helper. If the popup says <b>not set up</b>, run once in Terminal: <code>canvas-process --install-browser-link</code>, then reload the extension.</li>
+  </ul>
   <h2>YouTube videos</h2>
   <ul>
     <li>Every YouTube link gets a <b>(transcript)</b> link next to it. All of them are in <code>Plaintext/&lt;Course&gt;/transcripts</code>, listed by title in its <code>README.md</code>.</li>
@@ -63,6 +68,8 @@
 <label id="folderrow" hidden style="align-items:center;font-size:13px">Save to Downloads/
   <input type="text" id="dest" style="width:120px"></label>
 <small id="desthint" hidden>To save outside Downloads, change the browser's download location in its settings.</small>
+<label id="textrow" hidden style="font-size:13px"><input type="checkbox" id="autotext">
+  <span>After downloading, make text versions and transcripts <small id="textstatus">checking…</small></span></label>
 <button id="go" hidden>Download selected</button>
 <button id="folder">Open downloads folder</button>
 <script src="popup.js"></script>

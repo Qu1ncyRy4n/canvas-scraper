@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Canvas Course Saver",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Save Canvas courses (files, modules, pages, assignments) to Downloads/Canvas as linked Markdown. Pick courses from the toolbar icon.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzrTGgkqFIGgTqvlGJ4fCinpZXK+fjwmQ1H/Yl0nQ+EPZ+rbd7RQKx0wRR+2n2uiQDF0j82Oj6IPvIPR9ddRoHrhhh9hyFV/LOfYobC0e8Z7Zfv4DRNz3gPGBIAGaU9zva90LoB+8M4nvPd4AaqwNeOuFu19+UON18RjbEr3Y3zN6MiD/j7YjHmUBuLJfq6rtLH9OaghSAFQcQ9Z6ehpBNBel+UJJt0Ob8PKEqrOlEazcKcJo8Ze6xv5j2cQqyfoYM5IX5URBFiRWmSVCtoes+u9nuG82DZOi67kf0CGSyy3LgJC6dWCWYKT/hN/R5bWRWAtuh7l10B+pFv/I7eo1zwIDAQAB",
   "action": {
     "default_title": "Canvas Course Saver",
     "default_popup": "popup.html"
@@ -11,7 +12,8 @@
     "activeTab",
     "scripting",
     "downloads",
-    "storage"
+    "storage",
+    "nativeMessaging"
   ],
   "background": {
     "service_worker": "background.js",

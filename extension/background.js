@@ -35,3 +35,43 @@ async function verify(root) {
   await chrome.storage.local.remove(missing);
   return { checked: paths.length, missing };
 }
+
+// After a run: wait for this run's downloads to finish, then have canvas-host (Python, via native messaging)
+// make text versions and transcripts. Progress goes back to the Canvas tab over the port; if the tab closes,
+// processing still finishes.
+const HOST = "com.canvas_saver.host";
+chrome.runtime.onConnect.addListener(port => {
+  if (port.name !== "process") return;
+  port.onMessage.addListener(async ({ root }) => {
+    let open = true;
+    port.onDisconnect.addListener(() => (open = false));
+    const relay = m => { try { if (open) port.postMessage(m); } catch { open = false; } };
+    try {
+      relay({ progress: "Waiting for downloads to finish…" });
+      const dir = await waitForDownloads(root);
+      const host = chrome.runtime.connectNative(HOST);
+      host.onMessage.addListener(m => {
+        relay(m);
+        if (m.done || m.error) host.disconnect();
+      });
+      host.onDisconnect.addListener(() => chrome.runtime.lastError && relay({ error: chrome.runtime.lastError.message }));
+      host.postMessage({ cmd: "process", dir });
+    } catch (e) {
+      relay({ error: String(e.message || e) });
+    }
+  });
+});
+
+// Absolute path of the save folder (from where manifest.json landed), once nothing in it is still downloading.
+async function waitForDownloads(root) {
+  const { [`${root}/manifest.json`]: rec } = await chrome.storage.local.get(`${root}/manifest.json`);
+  const [item] = rec ? await chrome.downloads.search({ id: rec.id }) : [];
+  if (!item?.filename) throw new Error("can't find the save folder; run Download once more");
+  const dir = item.filename.slice(0, -"manifest.json".length - 1);
+  for (let waited = 0; waited < 1800; waited++) { // ponytail: 30 min cap for huge course folders
+    const busy = (await chrome.downloads.search({ state: "in_progress" })).filter(d => d.filename.startsWith(dir));
+    if (!busy.length) return dir;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error("downloads still running after 30 minutes");
+}

@@ -42,13 +42,17 @@ $("helpbtn").onclick = () => ($("help").hidden = !$("help").hidden);
   $("all").onchange = () => { boxes.forEach(b => (b.checked = $("all").checked)); sync(); };
   $("maxmb").value = cfg.maxMB ?? 200;
   $("dest").value = cfg.folder ?? "Canvas";
-  $("allrow").hidden = $("sizerow").hidden = $("folderrow").hidden = $("desthint").hidden = $("go").hidden = false;
+  $("autotext").checked = cfg.autoText ?? true;
+  $("allrow").hidden = $("sizerow").hidden = $("folderrow").hidden = $("desthint").hidden = $("textrow").hidden = $("go").hidden = false;
+  chrome.runtime.sendNativeMessage("com.canvas_saver.host", { cmd: "ping" }).then(
+    r => ($("textstatus").textContent = `(ready ✓, helper ${r.version})`),
+    () => ($("textstatus").textContent = "(not set up yet, see ?)"));
   sync();
 
   $("go").onclick = async () => {
     const ids = boxes.filter(b => b.checked).map(b => Number(b.value));
     await chrome.storage.local.set({ [key]: { ...cfg, ids, maxMB: Math.max(0, Number($("maxmb").value) || 0),
-      folder: $("dest").value.trim() || "Canvas" } });
+      folder: $("dest").value.trim() || "Canvas", autoText: $("autotext").checked } });
     exec(ids => window.__canvasSaver.run(ids), ids); // runs in the page; popup can close
     window.close();
   };
