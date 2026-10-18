@@ -7,7 +7,7 @@ Three parts:
 | Part | What it does | Needs |
 |---|---|---|
 | **Browser extension** (`extension/`) | Saves files, modules, pages, assignments, announcements and the syllabus from the Canvas tab you're logged into. | Chrome or Firefox. No Canvas access token. |
-| **`canvas-process`** | Turns the saved PDFs and slides into Markdown, fetches YouTube transcripts, and checks the folder against `manifest.json`. | [uv](https://docs.astral.sh/uv/) |
+| **`canvas-process`** | Turns the saved PDFs and slides into Markdown, fetches YouTube transcripts, and checks the folder against `manifest.json`. With the browser link installed, the extension runs it after every download. | [uv](https://docs.astral.sh/uv/) |
 | **`canvas-scrape`** (optional) | Same idea as the extension, as a command line tool using a Canvas API token. | A token, which many schools don't allow students to create. |
 
 ## Install the extension
@@ -36,6 +36,7 @@ The done panel shows:
 - what's new since the last run
 - assignments due in the next 7 days (✓ if submitted)
 - anything that wasn't downloaded, and why
+- if the browser link is installed: live progress of text versions and transcripts, ending in a line like `Text versions ✓ 3 converted, 2 new transcript(s)`
 
 **Updating.** Click **Download** again any time; only new or changed items are saved. Once a day, the first Canvas page you open asks **Update your Canvas downloads?** and the icon shows a count of new Canvas activity.
 
@@ -69,10 +70,31 @@ Downloads/Canvas/                  (folder name is set in the popup)
 
 ```bash
 uv tool install git+https://github.com/Qu1ncyRy4n/canvas-scraper   # or, from a clone: uv tool install -e .
-canvas-process                    # folder defaults to ~/Downloads/Canvas
+canvas-process --install-browser-link   # once: let the extension run it after every download
+canvas-process                    # run by hand; folder defaults to ~/Downloads/Canvas
 canvas-process --check            # test everything and say what's broken
 canvas-process --verbose          # show yt-dlp's own errors
 ```
+
+### Running it automatically: `--install-browser-link`
+
+This registers a small helper, `canvas-host`, with every installed browser that supports it: Chrome, Chromium, Brave, Edge, Firefox and Zen. On Windows it uses the registry.
+
+After a download, the extension does three things:
+1. Waits until nothing in the save folder is still downloading.
+2. Starts the helper (Chrome's "native messaging").
+3. Shows its progress in the corner panel.
+
+How to set it up and control it:
+- **Reload after installing.** Reload the extension once afterwards. The popup then shows **(ready ✓)** next to the "make text versions" checkbox.
+- **Turning it off.** Untick the checkbox to stop it running automatically.
+- **No permissions step.** The browser starts the helper, so on macOS it inherits the browser's access to Downloads. You don't need cron or Full Disk Access.
+- **Re-run after moving the install.** Run it again after reinstalling `canvas-process` somewhere else, so the browser finds the new helper.
+
+The extension has a fixed ID, `jknaldplfafkadaianplppapladkdfad`, set by the `key` in its manifest, so the helper can allow only this extension. Upgrading from 0.3 (no key) changes the ID once. Chrome then treats it as a new extension, which means:
+- **Settings reset:** the extension forgets its settings and saved-file records.
+- **Full re-download:** the next Download saves everything again, over the same files.
+- **History restarts:** `CHANGES.md` starts over.
 
 Each run does three things:
 
@@ -91,6 +113,7 @@ Each run does three things:
 Runs each step for real and prints ✓, ✗ or ! for:
 - **Tools:** versions; converts a test slide and a test PDF; fetches a test YouTube transcript.
 - **Folder:** courses found, manifest problems, PDFs/slides without a text version yet, and transcripts fetched per course.
+- **Browser link:** which browsers have the helper registered.
 - **Schedule:** whether the cron job is installed.
 
 It exits with status 1 if anything failed.
@@ -100,9 +123,10 @@ It exits with status 1 if anything failed.
 - **YouTube transcript fails.** YouTube changes often and yt-dlp keeps up. Run `uv tool upgrade canvas-scrape`, then `canvas-process --check --verbose`.
 - **`ModuleNotFoundError: No module named 'canvas_scrape'`.** macOS marked the install's `.pth` file hidden, and Python skips hidden `.pth` files. Fix it with `uv cache clean canvas-scrape && uv tool install --force -e .`.
   - **If the clone is in iCloud-synced `~/Documents` (development only):** iCloud keeps hiding files in a project `.venv`. Keep the environment in a folder iCloud skips: `rm -rf .venv && mkdir .venv.nosync && ln -s .venv.nosync .venv && uv sync`.
-- **Nothing updates on schedule.** Give `/usr/sbin/cron` Full Disk Access (see below).
+- **Popup says "not set up yet".** Run `canvas-process --install-browser-link`, then reload the extension. If it still says that, run `canvas-process --check` and look at "Browser link".
+- **Nothing updates on schedule (cron).** Give `/usr/sbin/cron` Full Disk Access (see below).
 
-**Run it every hour (macOS).** Run `crontab -e` and add:
+**Or run it every hour (macOS),** instead of or as well as the browser link. This also catches files you add by hand. Run `crontab -e` and add:
 
 ```
 0 * * * * ~/.local/bin/canvas-process
@@ -139,17 +163,19 @@ It writes an older, flat layout: one folder per course, with files and Markdown 
   - Unchanged items are skipped.
   - Before each run, the extension asks the browser whether every recorded download still exists. Missing ones are downloaded again.
   - `manifest.json` is written from these records.
+- **Browser link.** `canvas-host` speaks native messaging: 4-byte length plus JSON on stdin/stdout. It answers `ping` and `process`, streams `{"progress"}` messages and ends with `{"done": summary}` or `{"error"}`. Everything else it prints goes to stderr.
 - **HTML to Markdown.** Turndown (vendored, `extension/turndown.js`, v7.2.0) does the conversion. Canvas file, page and assignment links are rewritten to relative local paths.
 
 ## Development
 
 ```
 extension/          browser extension (Manifest V3; one folder works in Chrome and Firefox)
-  manifest.json     permissions: activeTab, scripting, downloads, storage
+  manifest.json     permissions: activeTab, scripting, downloads, storage, nativeMessaging; "key" fixes the id
   popup.html/.js    course picker, settings, ? help
   content.js        runs in the Canvas tab: scan, convert, progress panel, daily prompt, manifest
-  background.js     saves downloads, skips unchanged files, verifies before each run
+  background.js     saves downloads, skips unchanged files, verifies before each run, starts canvas-host
 canvas_scrape/      Python package: canvas-scrape and canvas-process
+  host.py           canvas-host (native messaging helper) and --install-browser-link
 test_canvas_scrape.py
 ```
 
