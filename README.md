@@ -55,13 +55,15 @@ Downloads/Canvas/                  (folder name is set in the popup)
     syllabus.md
     modules/01 Week 1.md           items in Canvas order, linked to local copies
     pages/  assignments/  announcements/
-    videos.md                      every YouTube link in the course, each with its transcript link
-    transcripts/<video id>.md      YouTube transcripts; README.md lists them by title  (made by canvas-process)
+    videos.md                      every YouTube video: [Title](link) · [transcript]
+    transcripts/<video title>.md   YouTube transcripts; README.md lists them         (made by canvas-process)
     files/…/Slides.pdf.md          text of each PDF/PPTX                              (made by canvas-process)
   Source/<Course>/…                original files, in the same folders as Canvas's Files page
 ```
 
+- **Videos.** YouTube videos embedded in pages, and video items in modules, are written as `![Title](https://www.youtube.com/watch?v=…)`. Obsidian and similar apps show that as an embedded player.
 - **Transcripts.** Every YouTube link (in pages, modules, announcements and `videos.md`) has a **(transcript)** link right after it. The link works once `canvas-process` has run.
+- **Video titles.** These come from YouTube's oEmbed endpoint (no API key). A video it can't look up is named by its ID.
 - **Links.** Links between pages, files and assignments point at the local copies. File links in module pages go to the text version, with an **(original)** link beside it.
 - **Skipped items.** Anything not downloaded stays as a link to Canvas: files over the size limit, locked files, quizzes and discussions.
 - **Text files.** Small text originals (`.txt`, `.csv`, code) are copied into `Plaintext/`, not symlinked. Copies survive Google Drive sync and drag-and-drop uploads; symlinks don't.
@@ -106,7 +108,7 @@ Each run does three things:
    - PPTX files are converted with [pptx2md](https://github.com/ssine/pptx2md). Titles, lists, tables and speaker notes are kept; images aren't.
    - Text files are copied as they are.
    - A file is only converted again when the original is newer than its text version.
-3. **Fetches YouTube transcripts** for every `videos.md`, using yt-dlp to get English captions (manual or auto-generated). Each is saved as `transcripts/<video id>.md`, so the extension can link to it in advance. A video that fails says why (no captions, or unavailable) and is retried on the next run.
+3. **Fetches YouTube transcripts** for every `videos.md`, using yt-dlp to get English captions (manual or auto-generated). Each is saved under the file name `videos.md` links to, which the extension picks from the video title. Older `<id>.md` files are renamed automatically. A video that fails says why (no captions, or unavailable) and is retried on the next run.
 
 ### Checking that it works: `canvas-process --check`
 

@@ -18,6 +18,7 @@ env:   CANVAS_URL=https://<school>.instructure.com  CANVAS_TOKEN=<token>
 usage: canvas-scrape [-o OUT] [COURSE_ID ...]       # no ids = all active courses
 """
 import argparse
+import contextlib
 import hashlib
 import html
 import json
@@ -26,7 +27,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 os.environ.setdefault("TQDM_DISABLE", "1")  # pptx2md progress bars
 import pptx2md  # noqa: E402
@@ -84,20 +85,33 @@ def vtt_to_text(vtt):
     return " ".join(out)
 
 
-def transcripts(ids, out, verbose=False, log=print):
-    """Fetch English captions for each video id -> {id: md path}. Saved as transcripts/<id>.md (title inside) so
-    the extension can link them before they exist. Videos without captions are retried next run."""
+def video_targets(videos_md):
+    """videos.md (written by the extension) -> {youtube id: transcript file name}. The extension names files
+    after video titles; lines without a transcript link (older versions) fall back to <id>.md."""
+    out = {}
+    for line in videos_md.read_text().splitlines():
+        if y := YT.search(line):
+            link = re.search(r"\]\(transcripts/([^)\s]+)\)", line)
+            out[y[1]] = unquote(link[1]) if link else f"{y[1]}.md"
+    return out
+
+
+def transcripts(ids, out, verbose=False, log=print, names=None):
+    """Fetch English captions for each video id -> {id: md path}, saved as out/<names[id]> (default <id>.md),
+    title inside. Videos without captions are retried next run."""
     out.mkdir(parents=True, exist_ok=True)
-    for old in out.glob("*.md"):  # older "<title> [id].md" names
-        if m := re.search(r" \[([\w-]{11})\]\.md$", old.name):
-            old.rename(out / f"{m[1]}.md")
-    have = {p.stem: p for p in out.glob("*.md") if re.fullmatch(r"[\w-]{11}", p.stem)}
+    target = {v: out / (names or {}).get(v, f"{v}.md") for v in ids}
+    for p in out.glob("*.md"):  # earlier names: "<id>.md", "<title> [<id>].md"
+        m = re.fullmatch(r"(?:.* \[)?([\w-]{11})\]?\.md", p.name)
+        if m and m[1] in target and p != target[m[1]] and not target[m[1]].exists():
+            p.rename(target[m[1]])
+    have = {v: t for v, t in target.items() if t.exists()}
     opts = {"skip_download": True, "writesubtitles": True, "writeautomaticsub": True, "subtitleslangs": ["en.*"],
             "subtitlesformat": "vtt", "noprogress": True, "ignoreerrors": True, "outtmpl": str(out / "%(id)s.%(ext)s"),
             "quiet": not verbose, "no_warnings": not verbose}
-    with yt_dlp.YoutubeDL(opts) as ydl:
+    with yt_dlp.YoutubeDL(opts) if ids - have.keys() else contextlib.nullcontext() as ydl:
         for vid in sorted(ids - have.keys()):
-            log(f"  transcript {vid}")
+            log(f"  transcript {target[vid].stem}")
             info = ydl.extract_info(f"https://youtu.be/{vid}")
             vtts = sorted(out.glob(f"{vid}.*.vtt"))
             if not info:
@@ -105,14 +119,14 @@ def transcripts(ids, out, verbose=False, log=print):
             elif not vtts:
                 log("    no English captions on this video")
             else:
-                have[vid] = out / f"{vid}.md"
+                have[vid] = target[vid]
                 write(have[vid], f"# {info['title']}\n\nVideo: <https://youtu.be/{vid}>\n\n{vtt_to_text(vtts[0].read_text())}\n")
             for v in vtts:
                 v.unlink()
     if have:
-        titles = {v: p.read_text().split("\n", 1)[0].removeprefix("# ") for v, p in have.items()}
+        titles = {p: p.read_text().split("\n", 1)[0].removeprefix("# ") for p in have.values()}
         write(out / "README.md", "# Transcripts\n\n" + "\n".join(
-            f"- [{t}]({v}.md)" for v, t in sorted(titles.items(), key=lambda x: x[1].lower())) + "\n")
+            f"- [{t}]({quote(p.name)})" for p, t in sorted(titles.items(), key=lambda x: x[1].lower())) + "\n")
     return have
 
 
@@ -350,8 +364,9 @@ def process(root, verbose=False, log=print):
     for videos in (root / "Plaintext").rglob("videos.md"):
         log(videos.parent.name)
         out = videos.parent / "transcripts"
-        before = len(list(out.glob("?" * 11 + ".md")))  # <11-char video id>.md, not README.md
-        done["transcripts"] += len(transcripts(set(YT.findall(videos.read_text())), out, verbose, log)) - before
+        names = video_targets(videos)
+        before = sum((out / n).exists() for n in names.values())
+        done["transcripts"] += len(transcripts(set(names), out, verbose, log, names)) - before
     return done
 
 
@@ -457,8 +472,9 @@ def check(root):
         (note if todo else lambda t: print(f"  ✓ {t}"))(
             f"{len(todo)} PDF/PPTX not converted yet, run canvas-process" if todo else "every PDF/PPTX has a text version")
         for videos in (root / "Plaintext").rglob("videos.md"):
-            ids = set(YT.findall(videos.read_text()))
-            done = {i for i in ids if (videos.parent / "transcripts" / f"{i}.md").exists()}
+            names = video_targets(videos)
+            ids = set(names)
+            done = {i for i in ids if (videos.parent / "transcripts" / names[i]).exists()}
             (note if done != ids else lambda t: print(f"  ✓ {t}"))(
                 f"{videos.parent.name}: {len(done)}/{len(ids)} transcripts" + (", run canvas-process" if done != ids else ""))
 

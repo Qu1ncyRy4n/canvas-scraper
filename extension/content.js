@@ -60,14 +60,38 @@ if (!window.__canvasSaver) (() => {
     return b;
   };
 
+  // YouTube id -> {title, file}; filled per course before rendering (see videoNames)
+  let videos = new Map();
+  // ![Title](watch url): Obsidian and similar apps show this as an embedded player
+  const embed = (id, fallback = "Video") =>
+    `![${(videos.get(id)?.title ?? fallback).replace(/[\[\]]/g, "")}](https://www.youtube.com/watch?v=${id})`;
+
   const td = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
   td.addRule("iframe", {
     filter: "iframe",
     replacement: (_, n) => {
-      const y = [...(n.getAttribute("src") || "").matchAll(YT)][0];
-      return `\n\n[Embedded video](${y ? `https://youtu.be/${y[1]}` : n.getAttribute("src")})\n\n`;
+      const src = n.getAttribute("src") || "", y = [...src.matchAll(YT)][0];
+      return `\n\n${y ? embed(y[1], "Embedded video") : `[Embedded content](${src})`}\n\n`;
     },
   });
+
+  // Video titles from YouTube's oEmbed (no key needed); transcript file names come from them.
+  // canvas-process saves each transcript wherever videos.md links it, so this is the only place names are chosen.
+  async function videoNames(ids) {
+    const out = new Map(), used = new Set();
+    for (const id of ids) {
+      let title = null;
+      try {
+        const r = await fetch(`https://www.youtube.com/oembed?format=json&url=https://www.youtube.com/watch?v=${id}`, { credentials: "omit" });
+        if (r.ok) title = (await r.json()).title;
+      } catch {} // offline or blocked: fall back to the id
+      let name = safe(title || id);
+      if (used.has(name.toLowerCase())) name += ` (${id})`;
+      used.add(name.toLowerCase());
+      out.set(id, { title: title || `Video ${id}`, file: `${name}.md` });
+    }
+    return out;
+  }
 
   // Text that canvas-process (Python) makes from originals; keep in sync with CONVERT / PLAIN in canvas_scrape.
   const CONVERT = /\.(pdf|pptx)$/i, PLAIN = /\.(txt|md|csv|tsv|json|tex|html?|css|js|py|r|java|c|cpp|h)$/i;
@@ -83,7 +107,7 @@ if (!window.__canvasSaver) (() => {
       if (inBundle) bundle.push(text);
     };
     // where canvas-process puts the text version of an original, if it makes one
-    const transcript = id => `${T}transcripts/${id}.md`; // written by canvas-process
+    const transcript = id => `${T}transcripts/${videos.get(id)?.file ?? `${id}.md`}`; // written by canvas-process
     const textOf = src => CONVERT.test(src) ? `${T}files/${src.slice(S.length)}.md`
       : PLAIN.test(src) ? `${T}files/${src.slice(S.length)}` : null;
 
@@ -132,6 +156,9 @@ if (!window.__canvasSaver) (() => {
     // files linked from page text (works even when the Files tab is hidden)
     for (const [, id] of blobs.join("\n").matchAll(/\/courses\/\d+\/files\/(\d+)/g)) await fileFor(Number(id));
 
+    const vids = [...new Set([...blobs.join("\n").matchAll(YT)].map(m => m[1]))];
+    videos = await videoNames(vids);
+
     const resolve = (kind, key) =>
       kind === "files" ? files.get(Number(key)) : (kind === "pages" ? pages : assignments).get(key)?.path;
     const toMd = (html, here) => td.turndown(html || "").replace(MD_LINK, (m, bang, text, url) => {
@@ -162,8 +189,8 @@ if (!window.__canvasSaver) (() => {
         else if (target) lines.push(`${pad}- [${it.title}](${rel(target, path)})` + (text ? ` ([original](${rel(src, path)}))` : ""));
         else {
           const y = [...(it.external_url || "").matchAll(YT)][0];
-          lines.push(`${pad}- [${it.title}](${it.external_url || it.html_url})`
-            + (y ? ` ([transcript](${rel(transcript(y[1]), path)}))` : ` _(${it.type})_`));
+          lines.push(y ? `${pad}- ${embed(y[1], it.title)} ([transcript](${rel(transcript(y[1]), path)}))`
+            : `${pad}- [${it.title}](${it.external_url || it.html_url}) _(${it.type})_`);
           if (!["ExternalUrl", "File"].includes(it.type)) skipped.push({ name: it.title, why: `${it.type}, online only` });
         }
       }
@@ -190,11 +217,11 @@ if (!window.__canvasSaver) (() => {
       index.push(`- ${date} [${n.title}](${rel(path, home)})`);
     }
 
-    // transcripts: NotebookLM / Gemini read YouTube links directly; canvas-process turns these into transcripts/
-    const vids = [...new Set([...blobs.join("\n").matchAll(YT)].map(m => m[1]))];
+    // NotebookLM / Gemini read YouTube links directly; canvas-process saves transcripts where these link
     if (vids.length) {
       await putText(T + "videos.md", `# Videos\n\nTranscript links work once canvas-process has run.\n\n`
-        + vids.map(v => `- https://youtu.be/${v} · [transcript](transcripts/${v}.md)`).join("\n") + "\n", { inBundle: false });
+        + vids.map(v => `- [${videos.get(v).title.replace(/[\[\]]/g, "")}](https://youtu.be/${v}) · [transcript](${rel(transcript(v), T + "videos.md")})`).join("\n") + "\n",
+        { inBundle: false });
       index.push(`\n## Videos\n\n- [${vids.length} YouTube videos, with transcripts](videos.md)\n- [All transcripts by title](transcripts/README.md)`);
     }
     // everything in one file: fewer sources to add to NotebookLM. Links from depth-1 files lose one "../".

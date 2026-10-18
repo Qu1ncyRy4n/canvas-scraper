@@ -52,3 +52,21 @@ def test_host_protocol(tmp_path):
     assert any("notes.txt" in r.get("progress", "") for r in replies[2:])
     assert replies[-1]["done"]["copied"] == 1
     assert (tmp_path / "Plaintext" / "ANTH 101" / "files" / "notes.txt").read_text() == "hello"
+
+
+def test_video_targets_and_rename(tmp_path, monkeypatch):
+    import canvas_scrape
+
+    (tmp_path / "videos.md").write_text(
+        "# Videos\n\n- [What are Myths](https://youtu.be/o-0iIXQ_XHA) · [transcript](transcripts/What%20are%20Myths.md)\n"
+        "- https://youtu.be/abcdefghijk\n")
+    names = canvas_scrape.video_targets(tmp_path / "videos.md")
+    assert names == {"o-0iIXQ_XHA": "What are Myths.md", "abcdefghijk": "abcdefghijk.md"}
+
+    out = tmp_path / "transcripts"
+    out.mkdir()
+    (out / "o-0iIXQ_XHA.md").write_text("# What are Myths\n\ntext\n")  # saved under the old id name
+    monkeypatch.setattr(canvas_scrape.yt_dlp, "YoutubeDL", None)  # nothing left to fetch for this id
+    have = canvas_scrape.transcripts({"o-0iIXQ_XHA"}, out, names=names)
+    assert have == {"o-0iIXQ_XHA": out / "What are Myths.md"} and not (out / "o-0iIXQ_XHA.md").exists()
+    assert "[What are Myths](What%20are%20Myths.md)" in (out / "README.md").read_text()
