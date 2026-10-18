@@ -30,7 +30,11 @@ from urllib.parse import quote
 
 os.environ.setdefault("TQDM_DISABLE", "1")  # pptx2md progress bars
 import pptx2md  # noqa: E402
-import pymupdf4llm
+try:  # layout analysis (headers/footers, tables, columns); must be imported before pymupdf4llm
+    import pymupdf.layout  # noqa: F401
+except ImportError:
+    pass
+import pymupdf4llm  # noqa: E402
 import yt_dlp
 from canvasapi import Canvas
 from canvasapi.exceptions import CanvasException, Forbidden, InvalidAccessToken, ResourceDoesNotExist, Unauthorized
@@ -386,7 +390,8 @@ def check(root):
 
     print("Tools")
     step("installed", lambda: f"Python {platform.python_version()}, yt-dlp {version('yt-dlp')}, "
-                              f"pptx2md {version('pptx2md')}, pymupdf4llm {version('pymupdf4llm')}")
+                              f"pptx2md {version('pptx2md')}, pymupdf4llm {version('pymupdf4llm')}, "
+                              f"PDF layout mode {'on' if 'pymupdf.layout' in sys.modules else 'off'}")
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
 
