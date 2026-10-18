@@ -79,24 +79,35 @@ def vtt_to_text(vtt):
     return " ".join(out)
 
 
-def transcripts(ids, out):
-    """Fetch English captions for each video id -> {id: md path}. Missing captions retry next run."""
+def transcripts(ids, out, verbose=False):
+    """Fetch English captions for each video id -> {id: md path}. Saved as transcripts/<id>.md (title inside) so
+    the extension can link them before they exist. Videos without captions are retried next run."""
     out.mkdir(parents=True, exist_ok=True)
-    have = {m[1]: p for p in out.glob("*.md") if (m := re.search(r"\[([\w-]{11})\]\.md$", p.name))}
-    opts = {"skip_download": True, "writesubtitles": True, "writeautomaticsub": True,
-            "subtitleslangs": ["en.*"], "subtitlesformat": "vtt", "quiet": True, "noprogress": True, "no_warnings": True,
-            "ignoreerrors": True, "outtmpl": str(out / "%(id)s.%(ext)s")}
+    for old in out.glob("*.md"):  # older "<title> [id].md" names
+        if m := re.search(r" \[([\w-]{11})\]\.md$", old.name):
+            old.rename(out / f"{m[1]}.md")
+    have = {p.stem: p for p in out.glob("*.md") if re.fullmatch(r"[\w-]{11}", p.stem)}
+    opts = {"skip_download": True, "writesubtitles": True, "writeautomaticsub": True, "subtitleslangs": ["en.*"],
+            "subtitlesformat": "vtt", "noprogress": True, "ignoreerrors": True, "outtmpl": str(out / "%(id)s.%(ext)s"),
+            "quiet": not verbose, "no_warnings": not verbose}
     with yt_dlp.YoutubeDL(opts) as ydl:
         for vid in sorted(ids - have.keys()):
             print("  transcript", vid)
             info = ydl.extract_info(f"https://youtu.be/{vid}")
             vtts = sorted(out.glob(f"{vid}.*.vtt"))
-            if info and vtts:
-                p = out / f"{safe(info['title'])} [{vid}].md"
-                write(p, f"# {info['title']}\n\nVideo: <https://youtu.be/{vid}>\n\n{vtt_to_text(vtts[0].read_text())}\n")
-                have[vid] = p
+            if not info:
+                print("    failed: video unavailable or YouTube refused (details: canvas-process --verbose)")
+            elif not vtts:
+                print("    no English captions on this video")
+            else:
+                have[vid] = out / f"{vid}.md"
+                write(have[vid], f"# {info['title']}\n\nVideo: <https://youtu.be/{vid}>\n\n{vtt_to_text(vtts[0].read_text())}\n")
             for v in vtts:
                 v.unlink()
+    if have:
+        titles = {v: p.read_text().split("\n", 1)[0].removeprefix("# ") for v, p in have.items()}
+        write(out / "README.md", "# Transcripts\n\n" + "\n".join(
+            f"- [{t}]({v}.md)" for v, t in sorted(titles.items(), key=lambda x: x[1].lower())) + "\n")
     return have
 
 
@@ -310,7 +321,9 @@ def process_main():
     """
     ap = argparse.ArgumentParser(description=process_main.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("dir", type=Path)
-    root = ap.parse_args().dir
+    ap.add_argument("-v", "--verbose", action="store_true", help="show yt-dlp's own warnings and errors")
+    a = ap.parse_args()
+    root = a.dir
     if not (root / "Source").is_dir():
         sys.exit(f"error: no Source/ folder in {root}; point this at the extension's save folder (e.g. ~/Downloads/Canvas)")
     problems = verify_manifest(root)
@@ -338,8 +351,6 @@ def process_main():
         except Exception as e:  # one broken file shouldn't stop the rest
             print("    failed:", e)
     for videos in (root / "Plaintext").rglob("videos.md"):
-        out = videos.parent / "transcripts"
-        have = transcripts(set(YT.findall(videos.read_text())), out)
-        if have:
-            write(out / "README.md", "# Transcripts\n\n" + "\n".join(
-                f"- [{p.stem}]({quote(p.name)})" for p in sorted(have.values(), key=lambda p: p.name)) + "\n")
+        print(videos.parent.name)
+        transcripts(set(YT.findall(videos.read_text())), videos.parent / "transcripts", a.verbose)
+
