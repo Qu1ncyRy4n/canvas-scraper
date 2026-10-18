@@ -83,6 +83,7 @@ if (!window.__canvasSaver) (() => {
       if (inBundle) bundle.push(text);
     };
     // where canvas-process puts the text version of an original, if it makes one
+    const transcript = id => `${T}transcripts/${id}.md`; // written by canvas-process
     const textOf = src => CONVERT.test(src) ? `${T}files/${src.slice(S.length)}.md`
       : PLAIN.test(src) ? `${T}files/${src.slice(S.length)}` : null;
 
@@ -136,6 +137,8 @@ if (!window.__canvasSaver) (() => {
     const toMd = (html, here) => td.turndown(html || "").replace(MD_LINK, (m, bang, text, url) => {
       const hit = url.match(CANVAS), target = hit && resolve(hit[1], hit[2]);
       if (target) return `${bang}[${text}](${rel(target, here)})`;
+      const y = [...url.matchAll(YT)][0];
+      if (y) return `${m} ([transcript](${rel(transcript(y[1]), here)}))`;
       return url.startsWith("/") ? `${bang}[${text}](${location.origin}${url})` : m; // not saved locally -> link to Canvas
     }).replace(/\n{3,}/g, "\n\n").trim();
 
@@ -158,7 +161,9 @@ if (!window.__canvasSaver) (() => {
         if (it.type === "SubHeader") lines.push(`\n**${it.title}**\n`);
         else if (target) lines.push(`${pad}- [${it.title}](${rel(target, path)})` + (text ? ` ([original](${rel(src, path)}))` : ""));
         else {
-          lines.push(`${pad}- [${it.title}](${it.external_url || it.html_url}) _(${it.type})_`);
+          const y = [...(it.external_url || "").matchAll(YT)][0];
+          lines.push(`${pad}- [${it.title}](${it.external_url || it.html_url})`
+            + (y ? ` ([transcript](${rel(transcript(y[1]), path)}))` : ` _(${it.type})_`));
           if (!["ExternalUrl", "File"].includes(it.type)) skipped.push({ name: it.title, why: `${it.type}, online only` });
         }
       }
@@ -188,8 +193,9 @@ if (!window.__canvasSaver) (() => {
     // transcripts: NotebookLM / Gemini read YouTube links directly; canvas-process turns these into transcripts/
     const vids = [...new Set([...blobs.join("\n").matchAll(YT)].map(m => m[1]))];
     if (vids.length) {
-      await putText(T + "videos.md", `# Videos\n\n${vids.map(v => `- https://youtu.be/${v}`).join("\n")}\n`, { inBundle: false });
-      index.push(`\n## Videos\n\n- [${vids.length} YouTube videos](videos.md)`);
+      await putText(T + "videos.md", `# Videos\n\nTranscript links work once canvas-process has run.\n\n`
+        + vids.map(v => `- https://youtu.be/${v} · [transcript](transcripts/${v}.md)`).join("\n") + "\n", { inBundle: false });
+      index.push(`\n## Videos\n\n- [${vids.length} YouTube videos, with transcripts](videos.md)\n- [All transcripts by title](transcripts/README.md)`);
     }
     // everything in one file: fewer sources to add to NotebookLM. Links from depth-1 files lose one "../".
     const all = `# ${c.name}: all course text\n\n` + bundle.map(t => t.trim()).join("\n\n---\n\n").replaceAll("](../", "](");

@@ -43,7 +43,11 @@
     <li>Deleted a file by accident? The next update brings it back. Files you edit are left alone.</li>
   </ul>
   <h2>YouTube videos</h2>
-  <ul><li>Links are collected in each course's <code>videos.md</code>. Paste them into NotebookLM as sources, or let <code>canvas-process</code> fetch transcripts.</li></ul>
+  <ul>
+    <li>Every YouTube link gets a <b>(transcript)</b> link next to it. All of them are in <code>Plaintext/&lt;Course&gt;/transcripts</code>, listed by title in its <code>README.md</code>.</li>
+    <li>Transcripts are made by <code>canvas-process</code> on this computer. If the links don't open, run <code>canvas-process --check</code> in Terminal.</li>
+    <li>In NotebookLM you can also paste the links from <code>videos.md</code> as YouTube sources.</li>
+  </ul>
   <h2>Problems?</h2>
   <ul>
     <li><b>A save dialog for every file:</b> turn off "Ask where to save each file" in the browser's download settings.</li>
