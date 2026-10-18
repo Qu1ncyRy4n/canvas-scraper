@@ -2,7 +2,13 @@
 <meta charset="utf-8">
 <style>
   body { width: 340px; margin: 0; padding: 14px; font: 14px/1.4 system-ui; color: #111; background: #fff; }
-  h1 { font-size: 15px; margin: 0 0 8px; }
+  h1 { font-size: 15px; margin: 0; }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  #helpbtn { width: 24px; height: 24px; padding: 0; border-radius: 50%; background: #e5e7eb; font-weight: 700; }
+  #help { font-size: 13px; background: #f3f4f6; border-radius: 8px; padding: 4px 12px; margin-bottom: 10px; }
+  #help h2 { font-size: 13px; margin: 10px 0 2px; }
+  #help ul, #help ol { margin: 2px 0; padding-left: 18px; }
+  code { font-size: 12px; }
   #list { max-height: 320px; overflow-y: auto; margin: 8px 0; }
   label { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; cursor: pointer; }
   small { color: #666; display: block; }
@@ -11,10 +17,40 @@
   #go:disabled { opacity: .5; cursor: default; }
   #folder { background: #e5e7eb; }
   @media (prefers-color-scheme: dark) {
-    body { color: #eee; background: #1f2937; } small { color: #aaa; } #folder { background: #4b5563; color: #fff; }
+    body { color: #eee; background: #1f2937; } small { color: #aaa; } #folder, #helpbtn { background: #4b5563; color: #fff; }
+    #help { background: #374151; }
   }
 </style>
-<h1>Canvas Course Saver</h1>
+<header><h1>Canvas Course Saver</h1><button id="helpbtn" title="How to use">?</button></header>
+<div id="help" hidden>
+  <h2>Saving courses</h2>
+  <ol>
+    <li>Open Canvas and log in (any page works).</li>
+    <li>Click this icon, tick the courses you want, then <b>Download</b>.</li>
+    <li>Keep the Canvas tab open until the box in its corner says <b>Done</b>.</li>
+  </ol>
+  <h2>Where things go</h2>
+  <p style="margin:2px 0"><small>"Canvas" below is the folder name set under "Save to Downloads/".</small></p>
+  <ul>
+    <li><code>Downloads/Canvas/Plaintext</code>: text versions of everything. Drag a course folder (or its <code>course.md</code>) into NotebookLM, Claude or ChatGPT.</li>
+    <li><code>Downloads/Canvas/Source</code>: the original PDFs, slides and files.</li>
+    <li>Each course has <code>README.md</code> (start here), <code>CHANGES.md</code> (what's new) and <code>SKIPPED.md</code> (what wasn't downloaded, and why).</li>
+  </ul>
+  <h2>Staying up to date</h2>
+  <ul>
+    <li>Click <b>Download</b> again any time. Only new or changed things download.</li>
+    <li>Once a day Canvas will ask <b>Update your Canvas downloads?</b></li>
+    <li>Deleted a file by accident? The next update brings it back. Files you edit are left alone.</li>
+  </ul>
+  <h2>YouTube videos</h2>
+  <ul><li>Links are collected in each course's <code>videos.md</code>. Paste them into NotebookLM as sources, or let <code>canvas-process</code> fetch transcripts.</li></ul>
+  <h2>Problems?</h2>
+  <ul>
+    <li><b>A save dialog for every file:</b> turn off "Ask where to save each file" in the browser's download settings.</li>
+    <li><b>"Open your Canvas site":</b> this tab isn't a logged-in Canvas page.</li>
+  </ul>
+  <p><small>Everything stays on this computer. The extension only talks to your Canvas site.</small></p>
+</div>
 <div id="msg">Loading your courses…</div>
 <label hidden id="allrow"><input type="checkbox" id="all"> <b>Select all</b></label>
 <div id="list"></div>

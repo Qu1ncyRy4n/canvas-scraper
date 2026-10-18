@@ -1,5 +1,6 @@
 const $ = id => document.getElementById(id);
 $("folder").onclick = () => chrome.downloads.showDefaultFolder();
+$("helpbtn").onclick = () => ($("help").hidden = !$("help").hidden);
 
 (async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -14,6 +15,7 @@ $("folder").onclick = () => chrome.downloads.showDefaultFolder();
   }
   if (!courses?.length) {
     $("msg").textContent = "Open your Canvas site in this tab and log in, then click the icon again.";
+    $("help").hidden = false;
     return;
   }
 

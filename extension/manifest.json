@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Canvas Course Saver",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Save Canvas courses (files, modules, pages, assignments) to Downloads/Canvas as linked Markdown. Pick courses from the toolbar icon.",
   "action": {
     "default_title": "Canvas Course Saver",
