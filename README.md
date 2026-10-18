@@ -54,12 +54,13 @@ Downloads/Canvas/                  (folder name is set in the popup)
     syllabus.md
     modules/01 Week 1.md           items in Canvas order, linked to local copies
     pages/  assignments/  announcements/
-    videos.md                      every YouTube link found in the course
-    files/…/Slides.pdf.md          text of each PDF/PPTX           (made by canvas-process)
-    transcripts/                   YouTube transcripts             (made by canvas-process)
+    videos.md                      every YouTube link in the course, each with its transcript link
+    transcripts/<video id>.md      YouTube transcripts; README.md lists them by title  (made by canvas-process)
+    files/…/Slides.pdf.md          text of each PDF/PPTX                              (made by canvas-process)
   Source/<Course>/…                original files, in the same folders as Canvas's Files page
 ```
 
+- **Transcripts.** Every YouTube link (in pages, modules, announcements and `videos.md`) has a **(transcript)** link right after it. The link works once `canvas-process` has run.
 - **Links.** Links between pages, files and assignments point at the local copies. File links in module pages go to the text version, with an **(original)** link beside it.
 - **Skipped items.** Anything not downloaded stays as a link to Canvas: files over the size limit, locked files, quizzes and discussions.
 - **Text files.** Small text originals (`.txt`, `.csv`, code) are copied into `Plaintext/`, not symlinked. Copies survive Google Drive sync and drag-and-drop uploads; symlinks don't.
@@ -67,8 +68,10 @@ Downloads/Canvas/                  (folder name is set in the popup)
 ## Turn files into text: `canvas-process`
 
 ```bash
-uv tool install git+https://github.com/Qu1ncyRy4n/canvas-scraper   # or: uv tool install ./canvas-scraper
-canvas-process ~/Downloads/Canvas
+uv tool install git+https://github.com/Qu1ncyRy4n/canvas-scraper   # or, from a clone: uv tool install -e .
+canvas-process                    # folder defaults to ~/Downloads/Canvas
+canvas-process --check            # test everything and say what's broken
+canvas-process --verbose          # show yt-dlp's own errors
 ```
 
 Each run does three things:
@@ -81,12 +84,27 @@ Each run does three things:
    - PPTX files are converted with [pptx2md](https://github.com/ssine/pptx2md). Titles, lists, tables and speaker notes are kept; images aren't.
    - Text files are copied as they are.
    - A file is only converted again when the original is newer than its text version.
-3. **Fetches YouTube transcripts** for every `videos.md`, using yt-dlp to get English captions (manual or auto-generated). Videos without captions are retried on the next run.
+3. **Fetches YouTube transcripts** for every `videos.md`, using yt-dlp to get English captions (manual or auto-generated). Each is saved as `transcripts/<video id>.md`, so the extension can link to it in advance. A video that fails says why (no captions, or unavailable) and is retried on the next run.
+
+### Checking that it works: `canvas-process --check`
+
+Runs each step for real and prints ✓, ✗ or ! for:
+- **Tools:** versions; converts a test slide and a test PDF; fetches a test YouTube transcript.
+- **Folder:** courses found, manifest problems, PDFs/slides without a text version yet, and transcripts fetched per course.
+- **Schedule:** whether the cron job is installed.
+
+It exits with status 1 if anything failed.
+
+### Troubleshooting
+
+- **YouTube transcript fails.** YouTube changes often and yt-dlp keeps up. Run `uv tool upgrade canvas-scrape`, then `canvas-process --check --verbose`.
+- **`ModuleNotFoundError: No module named 'canvas_scrape'`.** macOS marked the install's `.pth` file hidden, and Python skips hidden `.pth` files. Fix it with `uv cache clean canvas-scrape && uv tool install --force -e .`.
+- **Nothing updates on schedule.** Give `/usr/sbin/cron` Full Disk Access (see below).
 
 **Run it every hour (macOS).** Run `crontab -e` and add:
 
 ```
-0 * * * * ~/.local/bin/canvas-process ~/Downloads/Canvas
+0 * * * * ~/.local/bin/canvas-process
 ```
 
 macOS blocks background jobs from reading `~/Downloads`. Give `/usr/sbin/cron` **Full Disk Access** in System Settings → Privacy & Security. On Windows, create a Task Scheduler task that runs `canvas-process` with the folder as its argument.

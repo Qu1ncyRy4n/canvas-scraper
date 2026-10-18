@@ -28,7 +28,8 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
-import pptx2md
+os.environ.setdefault("TQDM_DISABLE", "1")  # pptx2md progress bars
+import pptx2md  # noqa: E402
 import pymupdf4llm
 import yt_dlp
 from canvasapi import Canvas
@@ -320,10 +321,14 @@ def process_main():
     Plaintext/<Course>/videos.md -> Plaintext/<Course>/transcripts/
     """
     ap = argparse.ArgumentParser(description=process_main.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("dir", type=Path)
+    ap.add_argument("dir", type=Path, nargs="?", default=Path.home() / "Downloads" / "Canvas",
+                    help="the extension's save folder (default: ~/Downloads/Canvas)")
+    ap.add_argument("--check", action="store_true", help="test conversions, YouTube and the folder; print what's broken")
     ap.add_argument("-v", "--verbose", action="store_true", help="show yt-dlp's own warnings and errors")
     a = ap.parse_args()
-    root = a.dir
+    root = a.dir.expanduser()
+    if a.check:
+        sys.exit(check(root))
     if not (root / "Source").is_dir():
         sys.exit(f"error: no Source/ folder in {root}; point this at the extension's save folder (e.g. ~/Downloads/Canvas)")
     problems = verify_manifest(root)
@@ -354,3 +359,93 @@ def process_main():
         print(videos.parent.name)
         transcripts(set(YT.findall(videos.read_text())), videos.parent / "transcripts", a.verbose)
 
+
+TEST_VIDEO = "dQw4w9WgXcQ"  # long-lived, has manual English captions
+
+
+def check(root):
+    """canvas-process --check: run each step on this computer and say what's broken. Returns exit code."""
+    import platform
+    import subprocess
+    import tempfile
+    from importlib.metadata import version
+
+    failed = 0
+
+    def step(name, fn):
+        nonlocal failed
+        try:
+            detail = fn()
+            print(f"  ✓ {name}" + (f": {detail}" if detail else ""))
+        except Exception as e:
+            failed += 1
+            print(f"  ✗ {name}: {e}")
+
+    def note(text):
+        print(f"  ! {text}")
+
+    print("Tools")
+    step("installed", lambda: f"Python {platform.python_version()}, yt-dlp {version('yt-dlp')}, "
+                              f"pptx2md {version('pptx2md')}, pymupdf4llm {version('pymupdf4llm')}")
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+
+        def pptx():
+            from pptx import Presentation
+            prs = Presentation()
+            prs.slides.add_slide(prs.slide_layouts[1]).shapes.title.text = "Check slide"
+            prs.save(tmp / "t.pptx")
+            to_text(tmp / "t.pptx", tmp / "t.pptx.md")
+            assert "Check slide" in (tmp / "t.pptx.md").read_text(), "slide text missing from the output"
+
+        def pdf():
+            import pymupdf
+            doc = pymupdf.open()
+            doc.new_page().insert_text((72, 72), "Check page")
+            doc.save(tmp / "t.pdf")
+            to_text(tmp / "t.pdf", tmp / "t.pdf.md")
+            assert "Check page" in (tmp / "t.pdf.md").read_text(), "page text missing from the output"
+
+        def youtube():
+            have = transcripts({TEST_VIDEO}, tmp / "tr")
+            if TEST_VIDEO not in have:
+                raise RuntimeError("no transcript. YouTube changes often: run `uv tool upgrade canvas-scrape`, "
+                                   "then `canvas-process --check --verbose` for yt-dlp's error")
+            return f"{len(have[TEST_VIDEO].read_text().split())} words"
+
+        step("PowerPoint -> Markdown", pptx)
+        step("PDF -> Markdown", pdf)
+        step("YouTube transcript", youtube)
+
+    print(f"Folder {root}")
+    if not (root / "Source").is_dir():
+        failed += 1
+        print("  ✗ no Source/ folder: download a course with the extension first, or pass the right folder")
+    else:
+        step("courses", lambda: ", ".join(sorted(p.name for p in (root / "Plaintext").iterdir() if p.is_dir())) or "none yet")
+        problems = verify_manifest(root)
+        (note if problems else lambda t: print(f"  ✓ {t}"))(
+            f"manifest: {len(problems)} problem(s), run canvas-process to list them" if problems else "manifest matches the files")
+        todo = [s for s in (root / "Source").rglob("*") if s.suffix.lower() in CONVERT and s.is_file()
+                and not (root / "Plaintext" / s.relative_to(root / "Source").parts[0] / "files"
+                         / Path(*s.relative_to(root / "Source").parts[1:])).with_name(s.name + ".md").exists()]
+        (note if todo else lambda t: print(f"  ✓ {t}"))(
+            f"{len(todo)} PDF/PPTX not converted yet, run canvas-process" if todo else "every PDF/PPTX has a text version")
+        for videos in (root / "Plaintext").rglob("videos.md"):
+            ids = set(YT.findall(videos.read_text()))
+            done = {i for i in ids if (videos.parent / "transcripts" / f"{i}.md").exists()}
+            (note if done != ids else lambda t: print(f"  ✓ {t}"))(
+                f"{videos.parent.name}: {len(done)}/{len(ids)} transcripts" + (", run canvas-process" if done != ids else ""))
+
+    print("Schedule")
+    try:
+        cron = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
+        if "canvas-process" in cron:
+            print("  ✓ hourly cron job installed (if nothing ever updates, give /usr/sbin/cron Full Disk Access)")
+        else:
+            note("not scheduled; optional, see README 'Run it every hour'")
+    except FileNotFoundError:
+        note("no crontab on this system; use Task Scheduler (see README)")
+
+    print("All good." if not failed else f"{failed} problem(s) above.")
+    return 1 if failed else 0
