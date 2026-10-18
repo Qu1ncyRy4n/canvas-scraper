@@ -69,14 +69,22 @@ if (!window.__canvasSaver) (() => {
     },
   });
 
-  // Scan one course -> {jobs: [{path, url | text, key}], due, skipped: [{name, why}]}. Nothing is downloaded here.
-  async function scanCourse(c, maxBytes, root) {
+  // Text that canvas-process (Python) makes from originals; keep in sync with CONVERT / PLAIN in canvas_scrape.
+  const CONVERT = /\.(pdf|pptx)$/i, PLAIN = /\.(txt|md|csv|tsv|json|tex|html?|css|js|py|r|java|c|cpp|h)$/i;
+
+  // Scan one course -> {jobs: [{path, url | text, key, label}], due, skipped: [{name, why}]}. Nothing is downloaded here.
+  // Paths are relative to the save folder:  Plaintext/<Course>/... (markdown)  and  Source/<Course>/... (original files)
+  async function scanCourse(c, maxBytes) {
+    const T = `Plaintext/${safe(c.name)}/`, S = `Source/${safe(c.name)}/`;
     const base = `courses/${c.id}`, jobs = [], bundle = [], skipped = [];
     const files = new Map(), pages = new Map(), assignments = new Map(), blobs = [];
-    const putText = async (path, text, inBundle = true) => {
-      jobs.push({ path, text, key: await hash(text) });
+    const putText = async (path, text, { inBundle = true, label = null } = {}) => {
+      jobs.push({ path, text, key: await hash(text), label });
       if (inBundle) bundle.push(text);
     };
+    // where canvas-process puts the text version of an original, if it makes one
+    const textOf = src => CONVERT.test(src) ? `${T}files/${src.slice(S.length)}.md`
+      : PLAIN.test(src) ? `${T}files/${src.slice(S.length)}` : null;
 
     const folders = new Map((await api(`${base}/folders`) ?? []).map(f => [f.id, f.full_name.replace(/^course files\/?/, "")]));
     async function fileFor(fid, f) {
@@ -88,9 +96,9 @@ if (!window.__canvasSaver) (() => {
         else if (!f.url) skipped.push({ name: f.display_name, why: "locked by instructor" });
         else if (maxBytes && f.size > maxBytes) skipped.push({ name: f.display_name, why: `${Math.round(f.size / 1e6)} MB, over size limit` });
         else {
-          const path = ["files", ...(folders.get(f.folder_id) ?? "").split("/").filter(Boolean).map(safe), safe(f.display_name)].join("/");
+          const path = S + [...(folders.get(f.folder_id) ?? "").split("/").filter(Boolean).map(safe), safe(f.display_name)].join("/");
           files.set(fid, path);
-          jobs.push({ path, url: f.url, key: `${f.updated_at}|${f.size}` });
+          jobs.push({ path, url: f.url, key: `${f.updated_at}|${f.size}`, label: f.display_name });
         }
       }
       return files.get(fid);
@@ -114,10 +122,10 @@ if (!window.__canvasSaver) (() => {
     }
     for (const p of pages.values()) {
       if (p.body === undefined) p.body = (await api(`${base}/pages/${p.url}`))?.body;
-      p.path = `pages/${safe(p.title)}.md`;
+      p.path = `${T}pages/${safe(p.title)}.md`;
       blobs.push(p.body || "");
     }
-    for (const a of assignments.values()) { a.path = `assignments/${safe(a.name)}.md`; blobs.push(a.description || ""); }
+    for (const a of assignments.values()) { a.path = `${T}assignments/${safe(a.name)}.md`; blobs.push(a.description || ""); }
     blobs.push(c.syllabus_body || "", ...news.map(n => n.message || ""));
     // files linked from page text (works even when the Files tab is hidden)
     for (const [, id] of blobs.join("\n").matchAll(/\/courses\/\d+\/files\/(\d+)/g)) await fileFor(Number(id));
@@ -130,23 +138,24 @@ if (!window.__canvasSaver) (() => {
       return url.startsWith("/") ? `${bang}[${text}](${location.origin}${url})` : m; // not saved locally -> link to Canvas
     }).replace(/\n{3,}/g, "\n\n").trim();
 
-    const home = "README.md";
+    const home = T + "README.md";
     const index = [`# ${c.name}\n`, `[Open in Canvas](${location.origin}/courses/${c.id})\n`];
     if (c.syllabus_body) {
-      await putText("syllabus.md", `# Syllabus\n\n${toMd(c.syllabus_body, "syllabus.md")}\n`);
+      await putText(T + "syllabus.md", `# Syllabus\n\n${toMd(c.syllabus_body, T + "syllabus.md")}\n`);
       index.push("- [Syllabus](syllabus.md)");
     }
 
     index.push("\n## Modules\n");
     for (const [i, m] of modules.entries()) {
-      const path = `modules/${String(i + 1).padStart(2, "0")} ${safe(m.name)}.md`, lines = [`# ${m.name}\n`];
+      const path = `${T}modules/${String(i + 1).padStart(2, "0")} ${safe(m.name)}.md`, lines = [`# ${m.name}\n`];
       for (const it of m.items) {
         const pad = "  ".repeat(it.indent || 0);
-        const target = it.type === "File" ? files.get(it.content_id)
+        const src = it.type === "File" ? files.get(it.content_id) : null, text = src && textOf(src);
+        const target = src ? text ?? src
           : it.type === "Page" ? pages.get(it.page_url)?.path
           : it.type === "Assignment" ? assignments.get(String(it.content_id))?.path : null;
         if (it.type === "SubHeader") lines.push(`\n**${it.title}**\n`);
-        else if (target) lines.push(`${pad}- [${it.title}](${rel(target, path)})`);
+        else if (target) lines.push(`${pad}- [${it.title}](${rel(target, path)})` + (text ? ` ([original](${rel(src, path)}))` : ""));
         else {
           lines.push(`${pad}- [${it.title}](${it.external_url || it.html_url}) _(${it.type})_`);
           if (!["ExternalUrl", "File"].includes(it.type)) skipped.push({ name: it.title, why: `${it.type}, online only` });
@@ -156,48 +165,43 @@ if (!window.__canvasSaver) (() => {
       index.push(`- [${m.name}](${rel(path, home)})`);
     }
 
-    for (const p of pages.values()) await putText(p.path, `# ${p.title}\n\n${toMd(p.body, p.path)}\n`);
+    for (const p of pages.values())
+      await putText(p.path, `# ${p.title}\n\n${toMd(p.body, p.path)}\n`, { label: `${p.title} (page)` });
 
     const byDue = [...assignments.values()].sort((a, b) => (a.due_at || "~").localeCompare(b.due_at || "~"));
     if (byDue.length) index.push("\n## Assignments\n");
     for (const a of byDue) {
       const due = (a.due_at || "no due date").slice(0, 10);
-      await putText(a.path, `# ${a.name}\n\nDue: ${due} · Points: ${a.points_possible ?? "-"} · [Canvas](${a.html_url})\n\n${toMd(a.description, a.path)}\n`);
+      await putText(a.path, `# ${a.name}\n\nDue: ${due} · Points: ${a.points_possible ?? "-"} · [Canvas](${a.html_url})\n\n${toMd(a.description, a.path)}\n`,
+        { label: `${a.name} (assignment)` });
       index.push(`- ${due} [${a.name}](${rel(a.path, home)})`);
     }
 
     if (news.length) index.push("\n## Announcements\n");
     for (const n of news) {
-      const date = (n.posted_at || "").slice(0, 10), path = `announcements/${date} ${safe(n.title)}.md`;
-      await putText(path, `# ${n.title}\n\n${date}\n\n${toMd(n.message, path)}\n`);
+      const date = (n.posted_at || "").slice(0, 10), path = `${T}announcements/${date} ${safe(n.title)}.md`;
+      await putText(path, `# ${n.title}\n\n${date}\n\n${toMd(n.message, path)}\n`, { label: `${n.title} (announcement)` });
       index.push(`- ${date} [${n.title}](${rel(path, home)})`);
     }
 
-    // transcripts: NotebookLM / Gemini read YouTube links directly, so just collect them in one place
+    // transcripts: NotebookLM / Gemini read YouTube links directly; canvas-process turns these into transcripts/
     const vids = [...new Set([...blobs.join("\n").matchAll(YT)].map(m => m[1]))];
     if (vids.length) {
-      await putText("videos.md", `# Videos\n\n${vids.map(v => `- https://youtu.be/${v}`).join("\n")}\n`, false);
+      await putText(T + "videos.md", `# Videos\n\n${vids.map(v => `- https://youtu.be/${v}`).join("\n")}\n`, { inBundle: false });
       index.push(`\n## Videos\n\n- [${vids.length} YouTube videos](videos.md)`);
     }
-    // everything in one file: fewer sources to add to NotebookLM. Links from depth-1 files lose their "../".
+    // everything in one file: fewer sources to add to NotebookLM. Links from depth-1 files lose one "../".
     const all = `# ${c.name}: all course text\n\n` + bundle.map(t => t.trim()).join("\n\n---\n\n").replaceAll("](../", "](");
-    await putText("course.md", all, false);
-    index.push("\n## Other\n\n- [Everything in one file](course.md)\n- [What's new](CHANGES.md)\n- [Not downloaded](SKIPPED.md)");
-    await putText(home, index.join("\n") + "\n", false);
-    for (const j of jobs) j.path = `${root}/${safe(c.name)}/${j.path}`;
+    await putText(T + "course.md", all, { inBundle: false });
+    index.push(`\n## Other\n\n- [Everything in one file](course.md)\n- [What's new](CHANGES.md)\n- [Not downloaded](SKIPPED.md)\n- [Original files](${rel(S, home)})`);
+    await putText(home, index.join("\n") + "\n", { inBundle: false });
 
     const now = Date.now(), week = now + 7 * 864e5;
     const due = byDue.filter(a => a.due_at && Date.parse(a.due_at) > now && Date.parse(a.due_at) < week)
       .map(a => ({ name: a.name, course: c.course_code || c.name, due: a.due_at,
         done: ["submitted", "graded", "pending_review"].includes(a.submission?.workflow_state) }));
-    return { jobs, due, skipped };
+    return { jobs, due, skipped, T };
   }
-
-  // "files/Week 1/Slides.pdf" -> "Slides.pdf"; "assignments/HW 1.md" -> "HW 1 (assignment)"; index files -> null
-  const label = path => {
-    const [kind, ...rest] = path.split("/"), name = rest.at(-1)?.replace(/\.md$/, "");
-    return { files: name, pages: `${name} (page)`, assignments: `${name} (assignment)`, announcements: `${name} (announcement)` }[kind] ?? null;
-  };
 
   async function courses() {
     const list = await api("courses?enrollment_state=active&include[]=term");
@@ -234,17 +238,17 @@ if (!window.__canvasSaver) (() => {
         title.textContent = (ids.length > 1 ? `Course ${i + 1} of ${ids.length}: ` : "") + c.name;
         detail.textContent = "Scanning…";
         bar.removeAttribute("value"); // indeterminate while scanning
-        const scan = await scanCourse(c, maxMB * 1e6, root);
+        const scan = await scanCourse(c, maxMB * 1e6);
         due.push(...scan.due);
         const skipFrom = skipped.length;
         skipped.push(...scan.skipped);
         bar.max = scan.jobs.length;
-        const dir = `${root}/${safe(c.name)}/`, changed = [];
+        const dir = `${root}/${scan.T}`, changed = [];
         for (const [n, job] of scan.jobs.entries()) {
           if (stop) break;
           bar.value = n;
           detail.textContent = job.path.split("/").pop();
-          if ((await send(job)) && label(job.path.slice(dir.length))) changed.push(label(job.path.slice(dir.length)));
+          if ((await send({ ...job, path: `${root}/${job.path}` })) && job.label) changed.push(job.label);
         }
         // CHANGES.md: dated log of what each update brought in (kept in storage, file rewritten whole)
         const logKey = "log:" + dir, { [logKey]: log = [] } = await chrome.storage.local.get(logKey);
