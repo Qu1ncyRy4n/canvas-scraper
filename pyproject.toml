@@ -1,0 +1,13 @@
+[project]
+name = "canvas-scrape"
+version = "0.1.0"
+description = "Mirror Canvas courses into a navigable Markdown tree with YouTube transcripts"
+requires-python = ">=3.12"
+dependencies = ["canvasapi", "markdownify", "yt-dlp"]
+
+[project.scripts]
+canvas-scrape = "canvas_scrape:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

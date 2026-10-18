@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "Canvas Course Saver",
+  "version": "0.1.0",
+  "description": "Open a Canvas course (or the dashboard for all courses), click the icon: saves files, modules, pages and assignments to Downloads/Canvas as linked Markdown.",
+  "action": { "default_title": "Save this Canvas course" },
+  "permissions": ["activeTab", "scripting", "downloads", "storage"],
+  "background": { "service_worker": "background.js" }
+}
