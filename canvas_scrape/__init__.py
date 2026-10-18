@@ -18,7 +18,9 @@ env:   CANVAS_URL=https://<school>.instructure.com  CANVAS_TOKEN=<token>
 usage: canvas-scrape [-o OUT] [COURSE_ID ...]       # no ids = all active courses
 """
 import argparse
+import hashlib
 import html
+import json
 import os
 import re
 import shutil
@@ -275,6 +277,24 @@ def to_text(src, dest):
         pptx2md.convert(pptx2md.ConversionConfig(pptx_path=src, output_path=dest, image_dir=dest.parent, disable_image=True))
 
 
+def verify_manifest(root):
+    """Check root/manifest.json (written by the extension) against the files on disk -> list of problems."""
+    try:
+        files = json.loads((root / "manifest.json").read_text())["files"]
+    except FileNotFoundError:
+        return []
+    problems = []
+    for rel, info in files.items():
+        p = root / rel
+        if not p.is_file():
+            problems.append(f"missing: {rel}")
+        elif info["kind"] == "file" and p.stat().st_size != info["size"]:
+            problems.append(f"size differs from Canvas ({p.stat().st_size} != {info['size']}): {rel}")
+        elif info["kind"] == "text" and hashlib.sha1(p.read_bytes()).hexdigest() != info["sha1"]:
+            problems.append(f"edited locally: {rel}")
+    return problems
+
+
 # keep in sync with CONVERT / PLAIN in extension/content.js
 CONVERT = {".pdf", ".pptx"}
 PLAIN = {".txt", ".md", ".csv", ".tsv", ".json", ".tex", ".html", ".htm", ".css", ".js", ".py", ".r", ".java", ".c", ".cpp", ".h"}
@@ -293,6 +313,12 @@ def process_main():
     root = ap.parse_args().dir
     if not (root / "Source").is_dir():
         sys.exit(f"error: no Source/ folder in {root}; point this at the extension's save folder (e.g. ~/Downloads/Canvas)")
+    problems = verify_manifest(root)
+    if problems:
+        print(f"manifest: {len(problems)} problem(s). Missing files come back on the next extension Update;"
+              " edited files are kept (delete one to get Canvas's version back):")
+        for p in problems[:20]:
+            print("  ", p)
     for src in sorted((root / "Source").rglob("*")):
         ext, parts = src.suffix.lower(), src.relative_to(root / "Source").parts
         if not src.is_file() or ext not in CONVERT | PLAIN or len(parts) < 2:

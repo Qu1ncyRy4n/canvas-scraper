@@ -98,7 +98,8 @@ if (!window.__canvasSaver) (() => {
         else {
           const path = S + [...(folders.get(f.folder_id) ?? "").split("/").filter(Boolean).map(safe), safe(f.display_name)].join("/");
           files.set(fid, path);
-          jobs.push({ path, url: f.url, key: `${f.updated_at}|${f.size}`, label: f.display_name });
+          jobs.push({ path, url: f.url, key: `${f.updated_at}|${f.size}`, label: f.display_name,
+            meta: { canvas_id: f.id, size: f.size, updated_at: f.updated_at } });
         }
       }
       return files.get(fid);
@@ -214,6 +215,20 @@ if (!window.__canvasSaver) (() => {
     : [];
   const fmtDay = iso => new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 
+  // <root>/manifest.json: every file this extension saved under root, so tools (canvas-process) can verify the folder.
+  // files: size/updated_at as Canvas reported them; text: SHA-1 of the UTF-8 content.
+  async function writeManifest(root) {
+    const all = await chrome.storage.local.get(null), files = {}, me = `${root}/manifest.json`;
+    for (const [path, rec] of Object.entries(all).sort()) {
+      if (!path.startsWith(root + "/") || path === me) continue;
+      const rel = path.slice(root.length + 1);
+      if (rec.meta?.canvas_id) files[rel] = { kind: "file", ...rec.meta };
+      else if (/^[0-9a-f]{40}$/.test(rec.key)) files[rel] = { kind: "text", sha1: rec.key }; // older records without meta: skip
+    }
+    const text = JSON.stringify({ canvas: location.origin, files }, null, 1) + "\n";
+    await chrome.runtime.sendMessage({ path: me, text, key: await hash(text) });
+  }
+
   let running = false;
   async function run(ids) {
     if (running) return;
@@ -232,6 +247,9 @@ if (!window.__canvasSaver) (() => {
       return r && !r.error && !r.skipped;
     };
     try {
+      title.textContent = "Checking saved files…";
+      const check = await chrome.runtime.sendMessage({ verify: root });
+      if (check?.missing?.length) console.info("Canvas saver: missing, will re-download:", check.missing);
       for (const [i, id] of ids.entries()) {
         const c = await api(`courses/${id}?include[]=syllabus_body`);
         if (!c?.name || stop) continue;
@@ -248,7 +266,8 @@ if (!window.__canvasSaver) (() => {
           if (stop) break;
           bar.value = n;
           detail.textContent = job.path.split("/").pop();
-          if ((await send({ ...job, path: `${root}/${job.path}` })) && job.label) changed.push(job.label);
+          const full = `${root}/${job.path}`; // restored files aren't "new"
+          if ((await send({ ...job, path: full })) && job.label && !check?.missing?.includes(full)) changed.push(job.label);
         }
         // CHANGES.md: dated log of what each update brought in (kept in storage, file rewritten whole)
         const logKey = "log:" + dir, { [logKey]: log = [] } = await chrome.storage.local.get(logKey);
@@ -264,12 +283,14 @@ if (!window.__canvasSaver) (() => {
         await send({ path: dir + "SKIPPED.md", text: skipMd, key: await hash(skipMd) });
         for (const x of mine) x.name += ` · ${c.course_code || c.name}`;
       }
+      await writeManifest(root);
       if (!stop) await setCfg({ lastRun: today(), lastRunAt: new Date().toISOString() });
       chrome.runtime.sendMessage({ badge: "" });
       due.sort((a, b) => a.due.localeCompare(b.due));
       box.replaceChildren(
         el("div", { style: "font-weight:600", textContent: stop ? "Stopped" : "Done ✓" }),
         el("div", { textContent: `${saved} new or updated item(s)` + (failed ? `, ${failed} failed` : "") }),
+        ...(check?.missing?.length ? [el("div", { textContent: `Restored ${check.missing.length} file(s) that had been deleted or moved` })] : []),
         ...list("What's new", fresh.length > 8 ? [...fresh.slice(0, 8), `…and ${fresh.length - 8} more (see CHANGES.md)`] : fresh),
         ...list("Due in the next 7 days", due.map(a => `${a.done ? "✓ " : ""}${fmtDay(a.due)} · ${a.name} · ${a.course}`)),
         ...list(`Not downloaded (${skipped.length}), see SKIPPED.md`, skipped.slice(0, 6).map(x => `${x.name}: ${x.why}`)),
