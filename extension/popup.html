@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { width: 340px; margin: 0; padding: 14px; font: 14px/1.4 system-ui; color: #111; background: #fff; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  #list { max-height: 320px; overflow-y: auto; margin: 8px 0; }
+  label { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; cursor: pointer; }
+  small { color: #666; display: block; }
+  button { padding: 7px 12px; border-radius: 6px; border: none; cursor: pointer; font: inherit; }
+  #go { background: #3b82f6; color: #fff; }
+  #go:disabled { opacity: .5; cursor: default; }
+  #folder { background: #e5e7eb; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #eee; background: #1f2937; } small { color: #aaa; } #folder { background: #4b5563; color: #fff; }
+  }
+</style>
+<h1>Canvas Course Saver</h1>
+<div id="msg">Loading your courses…</div>
+<label hidden id="allrow"><input type="checkbox" id="all"> <b>Select all</b></label>
+<div id="list"></div>
+<label id="sizerow" hidden style="align-items:center;font-size:13px">Skip files over
+  <input type="number" id="maxmb" min="0" step="50" style="width:64px"> MB <small>(0 = no limit)</small></label>
+<button id="go" hidden>Download selected</button>
+<button id="folder">Open downloads folder</button>
+<script src="popup.js"></script>
