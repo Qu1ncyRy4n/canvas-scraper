@@ -99,6 +99,7 @@ It exits with status 1 if anything failed.
 
 - **YouTube transcript fails.** YouTube changes often and yt-dlp keeps up. Run `uv tool upgrade canvas-scrape`, then `canvas-process --check --verbose`.
 - **`ModuleNotFoundError: No module named 'canvas_scrape'`.** macOS marked the install's `.pth` file hidden, and Python skips hidden `.pth` files. Fix it with `uv cache clean canvas-scrape && uv tool install --force -e .`.
+  - **If the clone is in iCloud-synced `~/Documents` (development only):** iCloud keeps hiding files in a project `.venv`. Keep the environment in a folder iCloud skips: `rm -rf .venv && mkdir .venv.nosync && ln -s .venv.nosync .venv && uv sync`.
 - **Nothing updates on schedule.** Give `/usr/sbin/cron` Full Disk Access (see below).
 
 **Run it every hour (macOS).** Run `crontab -e` and add:
