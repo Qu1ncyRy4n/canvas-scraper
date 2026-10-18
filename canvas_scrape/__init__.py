@@ -25,6 +25,8 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+import pptx2md
+import pymupdf4llm
 import yt_dlp
 from canvasapi import Canvas
 from canvasapi.exceptions import CanvasException, Forbidden, InvalidAccessToken, ResourceDoesNotExist, Unauthorized
@@ -261,3 +263,33 @@ def main():
     # index every course ever scraped into OUT, not just this run's
     write(a.out / "README.md", "# Courses\n\n" + "\n".join(
         f"- [{d.name}]({quote(d.name)}/README.md)" for d in sorted(a.out.iterdir()) if (d / "README.md").exists()) + "\n")
+
+
+def to_text(src, dest):
+    """PDF/PPTX -> markdown file. pymupdf4llm: text-layer PDFs only (scans come out near-empty; docproc --marker for those)."""
+    if src.suffix.lower() == ".pdf":
+        write(dest, pymupdf4llm.to_markdown(str(src)))
+    else:  # ponytail: slide images skipped, add image_dir if the md is read by people not LLMs
+        pptx2md.convert(pptx2md.ConversionConfig(pptx_path=src, output_path=dest, image_dir=dest.parent, disable_image=True))
+
+
+def process_main():
+    """canvas-process DIR: add <file>.md text next to every PDF/PPTX, and transcripts for every videos.md, under DIR."""
+    ap = argparse.ArgumentParser(description=process_main.__doc__)
+    ap.add_argument("dir", type=Path)
+    root = ap.parse_args().dir
+    for src in sorted(root.rglob("*")):
+        dest = src.with_name(src.name + ".md")
+        if src.suffix.lower() not in (".pdf", ".pptx") or (dest.exists() and dest.stat().st_mtime >= src.stat().st_mtime):
+            continue
+        print("  text", src.relative_to(root))
+        try:
+            to_text(src, dest)
+        except Exception as e:  # one broken file shouldn't stop the rest
+            print("    failed:", e)
+    for videos in root.rglob("videos.md"):
+        out = videos.parent / "transcripts"
+        have = transcripts(set(YT.findall(videos.read_text())), out)
+        if have:
+            write(out / "README.md", "# Transcripts\n\n" + "\n".join(
+                f"- [{p.stem}]({quote(p.name)})" for p in sorted(have.values(), key=lambda p: p.name)) + "\n")
