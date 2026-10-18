@@ -70,9 +70,9 @@ if (!window.__canvasSaver) (() => {
     },
   });
 
-  // Scan one course -> {jobs: [{path, url | text, key}], due, big}. Nothing is downloaded here.
+  // Scan one course -> {jobs: [{path, url | text, key}], due, skipped: [{name, why}]}. Nothing is downloaded here.
   async function scanCourse(c, maxBytes) {
-    const base = `courses/${c.id}`, jobs = [], bundle = [], big = [];
+    const base = `courses/${c.id}`, jobs = [], bundle = [], skipped = [];
     const files = new Map(), pages = new Map(), assignments = new Map(), blobs = [];
     const putText = async (path, text, inBundle = true) => {
       jobs.push({ path, text, key: await hash(text) });
@@ -84,8 +84,11 @@ if (!window.__canvasSaver) (() => {
       if (!files.has(fid)) {
         files.set(fid, null);
         f ??= await api(`${base}/files/${fid}`);
-        if (f?.url && maxBytes && f.size > maxBytes) big.push(f.display_name); // stays an online link
-        else if (f?.url) { // url is empty for locked files
+        // skipped files stay as online links
+        if (!f) skipped.push({ name: `file #${fid}`, why: "no access (hidden, deleted, or another course)" });
+        else if (!f.url) skipped.push({ name: f.display_name, why: "locked by instructor" });
+        else if (maxBytes && f.size > maxBytes) skipped.push({ name: f.display_name, why: `${Math.round(f.size / 1e6)} MB, over size limit` });
+        else {
           const path = ["files", ...(folders.get(f.folder_id) ?? "").split("/").filter(Boolean).map(safe), safe(f.display_name)].join("/");
           files.set(fid, path);
           jobs.push({ path, url: f.url, key: `${f.updated_at}|${f.size}` });
@@ -145,7 +148,10 @@ if (!window.__canvasSaver) (() => {
           : it.type === "Assignment" ? assignments.get(String(it.content_id))?.path : null;
         if (it.type === "SubHeader") lines.push(`\n**${it.title}**\n`);
         else if (target) lines.push(`${pad}- [${it.title}](${rel(target, path)})`);
-        else lines.push(`${pad}- [${it.title}](${it.external_url || it.html_url}) _(${it.type})_`);
+        else {
+          lines.push(`${pad}- [${it.title}](${it.external_url || it.html_url}) _(${it.type})_`);
+          if (!["ExternalUrl", "File"].includes(it.type)) skipped.push({ name: it.title, why: `${it.type}, online only` });
+        }
       }
       await putText(path, lines.join("\n") + "\n");
       index.push(`- [${m.name}](${rel(path, home)})`);
@@ -177,7 +183,7 @@ if (!window.__canvasSaver) (() => {
     // everything in one file: fewer sources to add to NotebookLM. Links from depth-1 files lose their "../".
     const all = `# ${c.name}: all course text\n\n` + bundle.map(t => t.trim()).join("\n\n---\n\n").replaceAll("](../", "](");
     await putText("course.md", all, false);
-    index.push("\n## Other\n\n- [Everything in one file](course.md)\n- [What's new](CHANGES.md)");
+    index.push("\n## Other\n\n- [Everything in one file](course.md)\n- [What's new](CHANGES.md)\n- [Not downloaded](SKIPPED.md)");
     await putText(home, index.join("\n") + "\n", false);
     for (const j of jobs) j.path = `${ROOT}/${safe(c.name)}/${j.path}`;
 
@@ -185,7 +191,7 @@ if (!window.__canvasSaver) (() => {
     const due = byDue.filter(a => a.due_at && Date.parse(a.due_at) > now && Date.parse(a.due_at) < week)
       .map(a => ({ name: a.name, course: c.course_code || c.name, due: a.due_at,
         done: ["submitted", "graded", "pending_review"].includes(a.submission?.workflow_state) }));
-    return { jobs, due, big };
+    return { jobs, due, skipped };
   }
 
   // "files/Week 1/Slides.pdf" -> "Slides.pdf"; "assignments/HW 1.md" -> "HW 1 (assignment)"; index files -> null
@@ -211,13 +217,13 @@ if (!window.__canvasSaver) (() => {
     running = true;
     const { maxMB = 200 } = await getCfg();
     let stop = false, saved = 0, failed = 0;
-    const fresh = [], due = [], big = [];
+    const fresh = [], due = [], skipped = [];
     const box = panel(), title = el("div", { style: "font-weight:600" }), detail = el("div", { style: "opacity:.8;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" });
     const bar = el("progress", { style: "width:100%;height:10px;margin:8px 0 4px" });
     box.append(title, bar, detail, btn("Stop", () => { stop = true; }));
     const send = async job => {
       const r = await chrome.runtime.sendMessage(job);
-      if (r?.error) { failed++; console.warn("Canvas saver:", job.path, r.error); }
+      if (r?.error) { failed++; skipped.push({ name: job.path.split("/").pop(), why: `download failed: ${r.error}` }); }
       else if (!r?.skipped) saved++;
       return r && !r.error && !r.skipped;
     };
@@ -230,7 +236,8 @@ if (!window.__canvasSaver) (() => {
         bar.removeAttribute("value"); // indeterminate while scanning
         const scan = await scanCourse(c, maxMB * 1e6);
         due.push(...scan.due);
-        big.push(...scan.big);
+        const skipFrom = skipped.length;
+        skipped.push(...scan.skipped);
         bar.max = scan.jobs.length;
         const dir = `${ROOT}/${safe(c.name)}/`, changed = [];
         for (const [n, job] of scan.jobs.entries()) {
@@ -248,16 +255,20 @@ if (!window.__canvasSaver) (() => {
         }
         const md = `# What's new: ${c.name}\n\n` + log.map(e => `## ${e.date}\n\n${e.items.map(t => `- ${t}`).join("\n")}`).join("\n\n") + "\n";
         await send({ path: dir + "CHANGES.md", text: md, key: await hash(md) });
+        const mine = skipped.slice(skipFrom), skipMd = `# Not downloaded: ${c.name}\n\nAs of ${today()}. These are still available on Canvas.\n\n`
+          + (mine.map(x => `- ${x.name}: ${x.why}`).join("\n") || "Nothing skipped.") + "\n";
+        await send({ path: dir + "SKIPPED.md", text: skipMd, key: await hash(skipMd) });
+        for (const x of mine) x.name += ` · ${c.course_code || c.name}`;
       }
       if (!stop) await setCfg({ lastRun: today(), lastRunAt: new Date().toISOString() });
       chrome.runtime.sendMessage({ badge: "" });
       due.sort((a, b) => a.due.localeCompare(b.due));
       box.replaceChildren(
         el("div", { style: "font-weight:600", textContent: stop ? "Stopped" : "Done ✓" }),
-        el("div", { textContent: `${saved} new or updated item(s)` + (failed ? `, ${failed} failed (see console)` : "") }),
+        el("div", { textContent: `${saved} new or updated item(s)` + (failed ? `, ${failed} failed` : "") }),
         ...list("What's new", fresh.length > 8 ? [...fresh.slice(0, 8), `…and ${fresh.length - 8} more (see CHANGES.md)`] : fresh),
         ...list("Due in the next 7 days", due.map(a => `${a.done ? "✓ " : ""}${fmtDay(a.due)} · ${a.name} · ${a.course}`)),
-        ...list(`Skipped ${big.length} file(s) over ${maxMB} MB (still linked online)`, big.slice(0, 5)),
+        ...list(`Not downloaded (${skipped.length}), see SKIPPED.md`, skipped.slice(0, 6).map(x => `${x.name}: ${x.why}`)),
         el("div", { style: "opacity:.8;font-size:12px;margin-top:8px", textContent: `Saved to Downloads/${ROOT}` }),
         btn("Open folder", () => chrome.runtime.sendMessage({ openFolder: true }), true),
         btn("Close", () => box.remove()));
