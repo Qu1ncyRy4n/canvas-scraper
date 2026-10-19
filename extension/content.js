@@ -237,9 +237,14 @@ if (!window.__canvasSaver) (() => {
     return { jobs, due, skipped, T };
   }
 
-  async function courses() {
-    const list = await api("courses?enrollment_state=active&include[]=term");
-    return list?.filter(c => c.name).map(c => ({ id: c.id, name: c.name, term: c.term?.name })) ?? null;
+  // Current courses, plus concluded ones ("past": enrollment completed) when asked. Courses the school has closed
+  // completely come back without a name and are dropped.
+  async function courses(past) {
+    const list = (state, isPast) => api(`courses?enrollment_state=${state}&include[]=term`)
+      .then(cs => (cs ?? []).filter(c => c.name).map(c => ({ id: c.id, name: c.name, term: c.term?.name, past: isPast })));
+    const now = await list("active", false);
+    const ids = new Set(now.map(c => c.id));
+    return past ? [...now, ...(await list("completed", true)).filter(c => !ids.has(c.id))] : now;
   }
 
   const list = (heading, lines) => lines.length

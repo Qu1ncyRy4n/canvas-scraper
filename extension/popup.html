@@ -10,6 +10,7 @@
   #help ul, #help ol { margin: 2px 0; padding-left: 18px; }
   code { font-size: 12px; }
   #list { max-height: 320px; overflow-y: auto; margin: 8px 0; }
+  #list h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #666; margin: 10px 0 2px; }
   label { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; cursor: pointer; }
   small { color: #666; display: block; }
   button { padding: 7px 12px; border-radius: 6px; border: none; cursor: pointer; font: inherit; }
@@ -29,6 +30,8 @@
     <li>Click this icon, tick the courses you want, then <b>Download</b>.</li>
     <li>Keep the Canvas tab open until the box in its corner says <b>Done</b>.</li>
   </ol>
+  <h2>Past courses</h2>
+  <ul><li>Tick <b>Show past (archived) courses</b> to list courses that have ended. Some schools close old courses completely; those can't be listed or saved.</li></ul>
   <h2>Where things go</h2>
   <p style="margin:2px 0"><small>"Canvas" below is the folder name set under "Save to Downloads/".</small></p>
   <ul>
@@ -62,6 +65,7 @@
 </div>
 <div id="msg">Loading your courses…</div>
 <label hidden id="allrow"><input type="checkbox" id="all"> <b>Select all</b></label>
+<label hidden id="pastrow" style="font-size:13px"><input type="checkbox" id="showpast"> Show past (archived) courses</label>
 <div id="list"></div>
 <label id="sizerow" hidden style="align-items:center;font-size:13px">Skip files over
   <input type="number" id="maxmb" min="0" step="50" style="width:64px"> MB <small>(0 = no limit)</small></label>
