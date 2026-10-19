@@ -27,7 +27,7 @@ For a permanent Firefox install, sign it as unlisted: `npx web-ext sign -s exten
 ## Use it
 
 1. Open Canvas and log in.
-2. Click the extension icon. Tick the courses you want. Optionally set the size limit and the folder name.
+2. Click the extension icon. Tick the courses you want. Tick **Show past (archived) courses** to list ended courses too. Optionally set the size limit and the folder name.
 3. Click **Download**. Keep the tab open until the panel in its corner says **Done**.
 
 The **?** in the popup explains all of this too.
@@ -72,15 +72,15 @@ Downloads/Canvas/                  (folder name is set in the popup)
 
 ```bash
 uv tool install git+https://github.com/Qu1ncyRy4n/canvas-scraper   # or, from a clone: uv tool install -e .
-canvas-process --install-browser-link   # once: let the extension run it after every download
+canvas-process --setup           # once: let the extension run it after every download, then check everything
 canvas-process                    # run by hand; folder defaults to ~/Downloads/Canvas
 canvas-process --check            # test everything and say what's broken
 canvas-process --verbose          # show yt-dlp's own errors
 ```
 
-### Running it automatically: `--install-browser-link`
+### Running it automatically: `--setup`
 
-This registers a small helper, `canvas-host`, with every installed browser that supports it: Chrome, Chromium, Brave, Edge, Firefox and Zen. On Windows it uses the registry.
+Run this once. It registers a small helper, `canvas-host`, with every installed browser that supports it: Chrome, Chromium, Brave, Edge, Firefox and Zen. On Windows it uses the registry.
 
 After a download, the extension does three things:
 1. Waits until nothing in the save folder is still downloading.
@@ -125,7 +125,7 @@ It exits with status 1 if anything failed.
 - **YouTube transcript fails.** YouTube changes often and yt-dlp keeps up. Run `uv tool upgrade canvas-scrape`, then `canvas-process --check --verbose`.
 - **`ModuleNotFoundError: No module named 'canvas_scrape'`.** macOS marked the install's `.pth` file hidden, and Python skips hidden `.pth` files. Fix it with `uv cache clean canvas-scrape && uv tool install --force -e .`.
   - **If the clone is in iCloud-synced `~/Documents` (development only):** iCloud keeps hiding files in a project `.venv`. Keep the environment in a folder iCloud skips: `rm -rf .venv && mkdir .venv.nosync && ln -s .venv.nosync .venv && uv sync`.
-- **Popup says "not set up yet".** Run `canvas-process --install-browser-link`, then reload the extension. If it still says that, run `canvas-process --check` and look at "Browser link".
+- **Popup says "not set up yet".** Run `canvas-process --setup`, then reload the extension. If it still says that, run `canvas-process --check` and look at "Browser link".
 - **Nothing updates on schedule (cron).** Give `/usr/sbin/cron` Full Disk Access (see below).
 
 **Or run it every hour (macOS),** instead of or as well as the browser link. This also catches files you add by hand. Run `crontab -e` and add:
@@ -177,7 +177,7 @@ extension/          browser extension (Manifest V3; one folder works in Chrome a
   content.js        runs in the Canvas tab: scan, convert, progress panel, daily prompt, manifest
   background.js     saves downloads, skips unchanged files, verifies before each run, starts canvas-host
 canvas_scrape/      Python package: canvas-scrape and canvas-process
-  host.py           canvas-host (native messaging helper) and --install-browser-link
+  host.py           canvas-host (native messaging helper) and --setup's installer
 test_canvas_scrape.py
 ```
 

@@ -77,7 +77,7 @@ def manifest(kind, path):
 
 
 def install():
-    """canvas-process --install-browser-link. Returns exit code."""
+    """Register canvas-host with every browser found (canvas-process --setup). Returns exit code."""
     try:
         exe = executable()
     except FileNotFoundError as e:
@@ -107,7 +107,7 @@ def install():
         print("error: no Chrome, Chromium, Brave, Edge, Firefox or Zen profile found on this computer")
         return 1
     print("Browser link installed for:\n  " + "\n  ".join(written))
-    print("Reload the extension (chrome://extensions → ↻), and its popup will say 'Text versions: ready'.")
+    print("Reload the extension (chrome://extensions → ↻); its popup will then show (ready ✓).")
     return 0
 
 

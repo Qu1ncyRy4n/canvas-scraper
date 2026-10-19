@@ -267,7 +267,7 @@ if (!window.__canvasSaver) (() => {
     await chrome.runtime.sendMessage({ path: me, text, key: await hash(text) });
   }
 
-  // Ask canvas-host (installed with `canvas-process --install-browser-link`) for text versions + transcripts.
+  // Ask canvas-host (installed with `canvas-process --setup`) for text versions + transcripts.
   function makeText(box, root) {
     const line = el("div", { style: "font-size:12px;margin-top:8px", textContent: "Text versions: starting…" });
     box.insertBefore(line, box.querySelector("button"));

@@ -384,13 +384,16 @@ def process_main():
     ap.add_argument("dir", type=Path, nargs="?", default=Path.home() / "Downloads" / "Canvas",
                     help="the extension's save folder (default: ~/Downloads/Canvas)")
     ap.add_argument("--check", action="store_true", help="test conversions, YouTube and the folder; print what's broken")
-    ap.add_argument("--install-browser-link", action="store_true",
-                    help="let the browser extension run this automatically after each download")
+    ap.add_argument("--setup", "--install-browser-link", action="store_true",
+                    help="one-time: let the browser extension run this after each download, then --check")
     ap.add_argument("-v", "--verbose", action="store_true", help="show yt-dlp's own warnings and errors")
     a = ap.parse_args()
     root = a.dir.expanduser()
-    if a.install_browser_link:
-        sys.exit(host.install())
+    if a.setup:
+        if host.install():
+            sys.exit(1)
+        print()
+        sys.exit(check(root))
     if a.check:
         sys.exit(check(root))
     try:
@@ -459,8 +462,7 @@ def check(root):
 
     print(f"Folder {root}")
     if not (root / "Source").is_dir():
-        failed += 1
-        print("  ✗ no Source/ folder: download a course with the extension first, or pass the right folder")
+        note("no downloads here yet: click Download in the extension first (or pass the right folder)")
     else:
         step("courses", lambda: ", ".join(sorted(p.name for p in (root / "Plaintext").iterdir() if p.is_dir())) or "none yet")
         problems = verify_manifest(root)
@@ -484,7 +486,7 @@ def check(root):
     if links:
         print("  ✓ installed for: " + ", ".join(str(f.parents[1].name) for f in links))
     else:
-        note("not installed; optional: canvas-process --install-browser-link")
+        note("not installed; run: canvas-process --setup")
 
     print("Schedule")
     try:
